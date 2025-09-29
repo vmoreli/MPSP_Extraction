@@ -1,0 +1,86 @@
+import os
+import json
+from pydantic import BaseModel, Field
+from openai import OpenAI
+from dotenv import load_dotenv
+
+# Carrega as variáveis de ambiente do arquivo .env
+load_dotenv()
+
+# --- Configuração do Cliente e Custos ---
+
+# Preços por milhão de tokens SUBSTITUIR COM VALORES CORRETOS
+PRECO_INPUT_SABIAZINHO_USD_POR_M_TOKENS = 0.20
+PRECO_OUTPUT_SABIAZINHO_USD_POR_M_TOKENS = 0.40
+
+# Inicializa o cliente da Maritaca (usando a interface da OpenAI)
+try:
+    client = OpenAI(
+        api_key=os.environ["MARITACA_API_KEY"],
+        base_url="https://chat.maritaca.ai/api"
+    )
+except KeyError:
+    raise EnvironmentError("A variável de ambiente 'MARITACA_API_KEY' não foi encontrada. Por favor, configure-a.")
+
+# Contador global de tokens e custo
+TOKEN_USAGE = {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "total_cost_usd": 0.0
+}
+
+
+def call_llm(prompt: str, output_schema: BaseModel, model_name: str = "sabiazinho-3") -> BaseModel:
+    """
+    Chama um modelo da Maritaca (Sabiazinho) para extrair dados estruturados,
+    contabiliza o uso de tokens e calcula o custo.
+
+    Args:
+        prompt (str): O texto de entrada para o modelo.
+        output_schema (BaseModel): A classe Pydantic que define o formato da saída.
+        model_name (str): O nome do modelo a ser usado (padrão: "sabiazinho-3").
+
+    Returns:
+        BaseModel: Uma instância do output_schema preenchida com os dados extraídos.
+    """
+    print(f"🔄 Chamando o modelo {model_name}...")
+    
+    # A API da OpenAI/Maritaca usa uma lista de mensagens
+    messages = [
+        {"role": "user", "content": prompt}
+    ]
+
+    # O método 'parse' da biblioteca da OpenAI lida com a formatação e validação do JSON
+    response = client.beta.chat.completions.parse(
+        model=model_name,
+        messages=messages,
+        response_format=output_schema,
+        temperature=0.0, # Temperatura baixa para saídas mais consistentes
+    )
+    
+    # Coleta o uso de tokens do objeto de resposta
+    if hasattr(response, "usage") and response.usage:
+        usage = response.usage
+        prompt_tokens = usage.prompt_tokens
+        completion_tokens = usage.completion_tokens
+        total_tokens = usage.total_tokens
+
+        # Atualiza o dicionário global de uso de tokens
+        TOKEN_USAGE["prompt_tokens"] += prompt_tokens
+        TOKEN_USAGE["completion_tokens"] += completion_tokens
+        TOKEN_USAGE["total_tokens"] += total_tokens
+
+        # Calcula o custo da chamada atual
+        input_cost = prompt_tokens * (PRECO_INPUT_SABIAZINHO_USD_POR_M_TOKENS / 1_000_000)
+        output_cost = completion_tokens * (PRECO_OUTPUT_SABIAZINHO_USD_POR_M_TOKENS / 1_000_000)
+        
+        # Atualiza o custo total acumulado
+        TOKEN_USAGE["total_cost_usd"] += (input_cost + output_cost)
+        print("✅ Chamada concluída com sucesso!")
+    else:
+        print("⚠️ Não foi possível encontrar os metadados de uso de tokens na resposta.")
+    
+    response_content = response.choices[0].message.content
+
+    return response_content
