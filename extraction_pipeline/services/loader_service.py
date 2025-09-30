@@ -1,6 +1,5 @@
 import os
 import json
-import random
 from typing import List, Optional, Set
 
 from extraction_pipeline.config import (
@@ -104,7 +103,7 @@ def load_process_paths(
         for file_path in filtered_processes_json_paths:
             processes_to_include.update(_load_json_set(file_path))
     
-    # --- ETAPA 3 e 4: Lógica de filtro e conversão para caminhos (inalterada) ---
+    # --- ETAPA 3 e 4: Lógica de filtro e conversão para caminhos ---
     final_process_numbers = set()
 
     if processes_to_include:
@@ -114,9 +113,12 @@ def load_process_paths(
         print(f"Scanning all {len(all_discovered_processes)} processes found on disk.")
         final_process_numbers = all_discovered_processes - processes_to_exclude
 
+    # Para que ordem dos processos seja determinística
+    sorted_final_numbers = sorted(list(final_process_numbers))
+
     final_paths = [
         process_path_map[num] 
-        for num in final_process_numbers 
+        for num in sorted_final_numbers 
         if num in process_path_map
     ]
     

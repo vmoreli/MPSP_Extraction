@@ -23,7 +23,7 @@ from extraction_pipeline.schemas.extract_data_schemas import (
 # Nó para extrair informações das vítimas
 # ---------------------------------------------------------
 def extrair_vitimas_node(state) -> Command[Literal["extrair suspeitos"]]:
-    document = state.get("document")
+    document = state.document
     prompt = prompt_vitimas.format(document=document)
 
     response_content = call_llm(prompt=prompt, output_schema=Vitimas)
@@ -41,7 +41,7 @@ def extrair_vitimas_node(state) -> Command[Literal["extrair suspeitos"]]:
 # Nó para extrair informações dos suspeitos
 # ---------------------------------------------------------
 def extrair_suspeitos_node(state) -> Command[Literal["extrair testemunhas"]]:
-    document = state.get("document")
+    document = state.document
     prompt = prompt_suspeitos.format(document=document)
 
     response_content = call_llm(prompt=prompt, output_schema=Suspeitos)
@@ -59,7 +59,7 @@ def extrair_suspeitos_node(state) -> Command[Literal["extrair testemunhas"]]:
 # Nó para extrair informações das testemunhas
 # ---------------------------------------------------------
 def extrair_testemunhas_node(state) -> Command[Literal["extrair informações gerais do inquérito"]]:
-    document = state.get("document")
+    document = state.document
     prompt = prompt_testemunhas.format(document=document)
 
     response_content = call_llm(prompt=prompt, output_schema=Testemunhas)
@@ -76,14 +76,14 @@ def extrair_testemunhas_node(state) -> Command[Literal["extrair informações ge
 # ---------------------------------------------------------
 # Nó para extrair informações gerais do processo
 # ---------------------------------------------------------
-def extrair_info_inquerito_node(state) -> Command[END]:
-    document = state.get("document")
+def extrair_info_inquerito_node(state):
+    document = state.document
     prompt = prompt_inquerito_info.format(document=document)
 
     response_content = call_llm(prompt=prompt, output_schema=Inquerito)
     inquerito_info = Inquerito.model_validate_json(response_content)
 
-    goto = "END"
+    goto = END
 
     return Command(
         goto=goto,

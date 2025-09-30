@@ -1,26 +1,31 @@
 import os
 import json
+import glob
 import random
-import argparse
 from pathlib import Path
 from typing import Optional, List
+from pydantic import BaseModel
 
 # Importando paths
 from extraction_pipeline.config import (
     OUTPUT_DIR,
     ATTACHMENTS_DIR,
     MODEL,
-    FILTERS_DIR
+    FILTERS_DIR,
+    MAX_PROCESSES
 )
 
 # Importando os outros módulos
 from extraction_pipeline.services.loader_service import load_process_paths
 
+# Importando agente
+from extraction_pipeline.graphs.extract_data import pipeline
+
 # --- Main Extraction Pipeline Function ---
 def run_extraction_pipeline(
     attachments_dir: str = ATTACHMENTS_DIR,
     output_dir: str = OUTPUT_DIR,
-    max_processes: Optional[int] = None,
+    max_processes: Optional[int] = MAX_PROCESSES,
     model: str = MODEL,
     random_seed: Optional[int] = 42,
     exclusion_file: Optional[List[str]] = [
@@ -84,18 +89,35 @@ def run_extraction_pipeline(
         print(f"\n({i+1}/{total_to_process}) Processing: {process_number}")
 
         try:
-            # Assumindo que o texto do processo está em um arquivo chamado 'process_text.txt'
-            # Adapte este nome de arquivo se necessário
-            input_txt_path = os.path.join(process_path, 'process_text.txt')
+            # Para cada process_path, percorre os diretórios e colhe o process_txt
+            # Extrai o texto dos .txt no diretório. Se tiver mais de um txt concatena os conteúdos deles
             
-            if not os.path.exists(input_txt_path):
-                print(f"  Warning: 'process_text.txt' not found in {process_path}. Skipping.")
+            # Encontra todos os arquivos .txt no diretório do processo
+            txt_files = glob.glob(os.path.join(process_path, "*.txt"))
+
+            if not txt_files:
+                print(f"  WARNING: No .txt files found in {process_path}. Skipping.")
                 continue
 
-            with open(input_txt_path, 'r', encoding='utf-8') as f:
-                process_text_content = f.read()
+            process_text = ""
+            # Ordena os arquivos para garantir uma concatenação consistente
+            for txt_file_path in sorted(txt_files):
+                with open(txt_file_path, 'r', encoding='utf-8') as f:
+                    process_text += f.read() + "\n" # Adiciona uma quebra de linha entre os arquivos
 
-            # CHAMAR GRAFO AQUI
+            # Chama o grafo para realizar a extração
+            extraction_result = pipeline.invoke({
+                "document": process_text
+            })
+
+            serializable_result = {}
+            for key, value in extraction_result.items():
+                if isinstance(value, BaseModel):
+                    # Usa .model_dump() para converter o objeto Pydantic em um dict
+                    serializable_result[key] = value.model_dump()
+                else:
+                    # Mantém outros tipos de dados (como a string 'document') como estão
+                    serializable_result[key] = value
             
             # Construir o caminho de saída dinamicamente
             output_path = (
@@ -110,7 +132,7 @@ def run_extraction_pipeline(
             
             # Salvar o resultado
             with open(output_file_path, 'w', encoding='utf-8') as f:
-                json.dump(extraction_result, f, ensure_ascii=False, indent=4)
+                json.dump(serializable_result, f, ensure_ascii=False, indent=4)
             
             print(f"  Successfully saved result to: {output_file_path}")
 

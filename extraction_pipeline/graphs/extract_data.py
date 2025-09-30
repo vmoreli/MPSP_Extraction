@@ -23,6 +23,7 @@ from extraction_pipeline.nodes.extract_data_nodes import (
 # ---------------------------------------------------------
 class InqueritoTotal(BaseModel):
   """Modelo unificado para extração de informações do inquérito policial."""
+  document: str
   vitimas: Optional[Vitimas] = Field(None, description="Informações sobre as vítimas")
   suspeitos: Optional[Suspeitos] = Field(None, description="Informações sobre os autores")
   testemunhas: Optional[Testemunhas] = Field(None, description="Informações sobre as testemunhas")

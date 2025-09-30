@@ -9,3 +9,4 @@ LLM_DIR = DATA_DIR / "llm"
 FILTERS_DIR = DATA_DIR / "filters"
 OUTPUT_DIR = "output"
 MODEL="sabiazinho-3.0"
+MAX_PROCESSES=1
