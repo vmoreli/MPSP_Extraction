@@ -7,6 +7,7 @@ Instruções:
 - Quando o sexo da vítima não for explicitamente informado, **infira pelo nome**.  
 - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".  
 - Sua resposta deve seguir **exatamente** o schema completo definido para vítimas. 
+- O que for "não informado" não precisa ser preenchido.
 
 Promoção de arquivamento:
 {document}
@@ -21,7 +22,8 @@ prompt_suspeitos = """
     - Extraia **apenas informações sobre os suspeitos/investigados** mencionadas no documento.
     - Quando o sexo do indivíduo não for fornecido explicitamente, infira o sexo da pessoa pelo nome.
     - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
-    - Sua resposta deve seguir **exatamente** o schema completo definido para suspeitos. 
+    - Sua resposta deve seguir **exatamente** o schema completo definido para suspeitos.
+    - O que for "não informado" não precisa ser preenchido.
 
     Promoção de arquivamento:
     {document}    
@@ -35,6 +37,7 @@ prompt_testemunhas = """
     - Extraia **apenas informações sobre os suspeitos/investigados** mencionadas no documento.
     - Quando o sexo do indivíduo não for fornecido explicitamente, infira o sexo da pessoa pelo nome.
     - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
+    - O que for "não informado" não precisa ser preenchido.
     
 
     Promoção de arquivamento:
@@ -53,6 +56,7 @@ prompt_inquerito_info = """
     - 'bem_roubado' deve ser preenchido sempre que a classificação do crime for Latrocínio.
     - 'resultado' deve seguir a lógica: Latrocínio é sempre consumado; caso de 'MORTE_SEM_INDICIO_DE_CRIME', resultado deve ser None.
     - Sua resposta deve seguir **exatamente** o schema completo definido para o inquérito.
+    - O que for "não informado" não precisa ser preenchido.
 
     Promoção de arquivamento:
     {document}

@@ -2,9 +2,13 @@ import os
 import json
 import glob
 import random
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 from pydantic import BaseModel
+# Importa a biblioteca para paralelismo
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time # Para medir o tempo de execução
 
 # Importando paths
 from extraction_pipeline.config import (
@@ -19,9 +23,62 @@ from extraction_pipeline.config import (
 from extraction_pipeline.services.loader_service import load_process_paths
 
 # Importando agente
+# ASSUMINDO QUE 'pipeline' PODE SER INICIALIZADO DENTRO DA FUNÇÃO TRABALHADORA
+# Se 'pipeline' for um objeto pesado, veja a nota no final da resposta.
 from extraction_pipeline.graphs.extract_data import pipeline
 
-# --- Main Extraction Pipeline Function ---
+# --- PASSO 1: Isolar a lógica de processamento em uma função trabalhadora ---
+# Esta função processará UM único caminho de processo.
+def process_single_path(process_path: str, unique_run_output_dir: Path, model: str) -> str:
+    """
+    Processa um único diretório de processo: lê o texto, invoca o pipeline e salva o resultado.
+    Retorna uma mensagem de status.
+    """
+    process_number = os.path.basename(process_path)
+    seven_digit_prefix = os.path.basename(os.path.dirname(process_path))
+
+    try:
+        # Encontra todos os arquivos .txt no diretório do processo
+        txt_files = glob.glob(os.path.join(process_path, "*.txt"))
+
+        if not txt_files:
+            return f"WARNING: No .txt files found in {process_path}. Skipping."
+
+        process_text = ""
+        # Ordena os arquivos para garantir uma concatenação consistente
+        for txt_file_path in sorted(txt_files):
+            with open(txt_file_path, 'r', encoding='utf-8') as f:
+                process_text += f.read() + "\n"
+
+        # Chama o grafo para realizar a extração
+        extraction_result = pipeline.invoke({
+            "document": process_text
+        })
+
+        serializable_result = {}
+        for key, value in extraction_result.items():
+            if isinstance(value, BaseModel):
+                serializable_result[key] = value.model_dump()
+            else:
+                serializable_result[key] = value
+
+        # Construir o caminho de saída dinamicamente
+        output_path = (
+            unique_run_output_dir / model / seven_digit_prefix / process_number
+        )
+        output_path.mkdir(parents=True, exist_ok=True)
+        output_file_path = output_path / f"{process_number}_result.json"
+
+        # Salvar o resultado
+        with open(output_file_path, 'w', encoding='utf-8') as f:
+            json.dump(serializable_result, f, ensure_ascii=False, indent=4)
+
+        return f"SUCCESS: Successfully processed {process_number} and saved to {output_file_path}"
+
+    except Exception as e:
+        return f"ERROR: Failed to process {process_number}. Reason: {e}"
+
+# --- Função Principal Modificada ---
 def run_extraction_pipeline(
     attachments_dir: str = ATTACHMENTS_DIR,
     output_dir: str = OUTPUT_DIR,
@@ -29,43 +86,27 @@ def run_extraction_pipeline(
     model: str = MODEL,
     random_seed: Optional[int] = 42,
     exclusion_file: Optional[List[str]] = [
-        FILTERS_DIR / "outliers_bottom_1_percent.json",     # Outliers inferiores (em termos de números de tokens)
-        FILTERS_DIR / "outliers_top_1_percent.json"         # Outliers superiores (em termos de números de tokens)
+        FILTERS_DIR / "outliers_bottom_1_percent.json",
+        FILTERS_DIR / "outliers_top_1_percent.json"
     ],
     inclusion_file: Optional[List[str]] = [
-        FILTERS_DIR / "processes_passed_filter.json"        # Processos que passaram pelos filtros de assunto (relacionados a homicídios)
-    ]
+        FILTERS_DIR / "processes_passed_filter.json"
+    ],
+    eval_mode: bool = False,
+    eval_path: Optional[str] = None
 ) -> None:
     """
-    Executa o pipeline de extração de dados varrendo subdiretórios
-    em ATTACHMENTS_DIR, onde há uma pasta para os 7 primeiros dígitos
-    e dentro dela, pastas para cada processo.
-    Salva os resultados de cada processo em um arquivo JSON separado,
-    seguindo a organização de diretórios:
-    output_dir/nome_do_modelo/7_primeiros_digitos/numero_processo/estrategia/jsons
-
-    A ordem de varredura dos diretórios de processo pode ser aleatória e determinística
-    se uma `random_seed` for fornecida. Processos listados em `exclusion_file` serão pulados.
-    Pode opcionalmente usar uma lista pré-filtrada de processos via `filtered_processes_json_path`.
-
-    Args:
-        attachments_dir: O diretório raiz que contém as pastas de 7 dígitos.
-        output_dir: Diretório onde os resultados JSON serão salvos.
-        max_processes: Limite o número de processos (pastas de processo aninhadas)
-                       a serem analisados. Se None, todos serão analisados.
-        model: O nome do modelo usado para a extração, que será usado para criar uma pasta de saída.
-        random_seed: Uma semente inteira para o gerador de números aleatórios. Se fornecida,
-                     a ordem de processamento será aleatória, mas determinística.
-                     Se None, a ordem de varredura será a padrão do os.walk (determinística).
-        exclusion_file: Caminho para um arquivo JSON contendo os números de processo a serem excluídos.
-        filtered_processes_json_path: Caminho para um arquivo JSON (gerado pelo script de filtro)
-                                      contendo la lista de processos a serem extraídos.
-                                      Se fornecido, o pipeline processará APENAS esses processos.
+    Executa o pipeline de extração de dados de forma paralela.
     """
-    print("--- Starting Extraction Pipeline ---")
+    print("--- Starting Parallel Extraction Pipeline ---")
+    start_time = time.time()
 
-    # 1. Carregar e filtrar os caminhos dos processos usando o serviço de loader
-    process_paths = load_process_paths(attachments_dir, exclusion_file, inclusion_file)
+    # --- Gerar um timestamp único para esta execução ---
+    run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    unique_run_output_dir = Path(output_dir) / f"run_{run_timestamp}"
+
+    # 1. Carregar e filtrar os caminhos dos processos (sem alterações aqui)
+    process_paths = load_process_paths(attachments_dir, exclusion_file, inclusion_file, eval_mode, eval_path)
 
     # 2. Embaralhar a lista se uma seed foi fornecida
     if random_seed is not None:
@@ -75,72 +116,38 @@ def run_extraction_pipeline(
 
     # 3. Limitar o número de processos, se especificado
     if max_processes is not None:
-        print(f"Limiting to a maximum of {max_processes} processes.")
+        print(f"Limiting to a maximum of {max_processes} total processes.")
         process_paths = process_paths[:max_processes]
-
-    # 4. Iterar sobre cada processo e executar a extração
+    
     total_to_process = len(process_paths)
-    print(f"\n--- Processing {total_to_process} files ---")
+    print(f"\n--- Starting processing of {total_to_process} files using parallel workers ---")
 
-    for i, process_path in enumerate(process_paths):
-        process_number = os.path.basename(process_path)
-        seven_digit_prefix = os.path.basename(os.path.dirname(process_path))
-        
-        print(f"\n({i+1}/{total_to_process}) Processing: {process_number}")
+    # --- PASSO 2: Usar ProcessPoolExecutor para paralelizar a execução ---
+    # O número de workers será o valor de MAX_PROCESSES ou o número de CPUs se não for definido.
+    # Se MAX_PROCESSES era para limitar o *total* de arquivos, você pode querer um novo parâmetro
+    # para o número de workers, por exemplo, `num_workers = os.cpu_count()`.
+    # Aqui, estou reutilizando `max_processes` como o número de workers.
+    # Cuidado: Se `max_processes` for muito grande, pode consumir muita memória/CPU.
+    num_workers = max_processes if max_processes is not None else os.cpu_count()
+    print(f"Using {num_workers} parallel workers.")
 
-        try:
-            # Para cada process_path, percorre os diretórios e colhe o process_txt
-            # Extrai o texto dos .txt no diretório. Se tiver mais de um txt concatena os conteúdos deles
-            
-            # Encontra todos os arquivos .txt no diretório do processo
-            txt_files = glob.glob(os.path.join(process_path, "*.txt"))
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        # Submete todas as tarefas ao pool. `future` é um objeto que representa a execução.
+        futures = {
+            executor.submit(process_single_path, path, unique_run_output_dir, model): path
+            for path in process_paths
+        }
 
-            if not txt_files:
-                print(f"  WARNING: No .txt files found in {process_path}. Skipping.")
-                continue
+        # Processa os resultados à medida que são concluídos
+        for i, future in enumerate(as_completed(futures)):
+            result_message = future.result()
+            print(f"({i+1}/{total_to_process}) - {result_message}")
 
-            process_text = ""
-            # Ordena os arquivos para garantir uma concatenação consistente
-            for txt_file_path in sorted(txt_files):
-                with open(txt_file_path, 'r', encoding='utf-8') as f:
-                    process_text += f.read() + "\n" # Adiciona uma quebra de linha entre os arquivos
-
-            # Chama o grafo para realizar a extração
-            extraction_result = pipeline.invoke({
-                "document": process_text
-            })
-
-            serializable_result = {}
-            for key, value in extraction_result.items():
-                if isinstance(value, BaseModel):
-                    # Usa .model_dump() para converter o objeto Pydantic em um dict
-                    serializable_result[key] = value.model_dump()
-                else:
-                    # Mantém outros tipos de dados (como a string 'document') como estão
-                    serializable_result[key] = value
-            
-            # Construir o caminho de saída dinamicamente
-            output_path = (
-                Path(output_dir) / model / seven_digit_prefix / process_number /
-                "jsons"
-            )
-            
-            # Criar diretórios de saída se não existirem
-            output_path.mkdir(parents=True, exist_ok=True)
-            
-            output_file_path = output_path / f"{process_number}_result.json"
-            
-            # Salvar o resultado
-            with open(output_file_path, 'w', encoding='utf-8') as f:
-                json.dump(serializable_result, f, ensure_ascii=False, indent=4)
-            
-            print(f"  Successfully saved result to: {output_file_path}")
-
-        except Exception as e:
-            print(f"  ERROR: Failed to process {process_number}. Reason: {e}")
-
+    end_time = time.time()
     print("\n--- Extraction Pipeline Finished ---")
+    print(f"Total execution time: {end_time - start_time:.2f} seconds")
 
 
 if __name__ == '__main__':
-    run_extraction_pipeline()
+    # A guarda `if __name__ == '__main__':` é ESSENCIAL para que o multiprocessing funcione corretamente.
+    run_extraction_pipeline(eval_mode=True, eval_path="ids_eval.json")

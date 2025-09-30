@@ -20,6 +20,11 @@ class ResultadoCrime(str, enum.Enum):
     CONSUMADO = "Consumado"
     TENTADO = "Tentado"
 
+class NaturezaAutoria(str, enum.Enum):
+    """Define a natureza da autoria do crime investigado."""
+    CONHECIDA = "Conhecida"
+    DESCONHECIDA = "Desconhecida"
+
 
 class Pessoa(BaseModel):
     """Informações sobre uma pessoa envolvida no inquérito."""
@@ -130,7 +135,7 @@ class Inquerito(BaseModel):
     bem_roubado: Optional[str]                                      = Field(None, description="Descrição do bem subtraído, relevante para casos de latrocínio.")
     
     # --- Campos do Andamento do Inquérito ---
-    natureza_da_autoria: Optional[str]                              = Field(None, description="Natureza da autoria (ex: 'Conhecida', 'Desconhecida').")
+    natureza_da_autoria: Optional[NaturezaAutoria]                  = Field(None, description="Natureza da autoria (ex: 'Conhecida', 'Desconhecida').")
     pericia_realizada: Optional[bool]                               = Field(None, description="Indica se foi realizada perícia no local ou em armas.") 
     prisao_em_flagrante: Optional[bool]                             = Field(None, description="Indica se houve prisão em flagrante.") 
     razao_arquivamento: Optional[str]                               = Field(None, description="Razão do arquivamento, trecho exatamente como está escrito no documento original.")
