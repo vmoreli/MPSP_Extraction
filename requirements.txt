@@ -3,3 +3,4 @@ langgraph
 maritalk
 openai
 dotenv
+google-generativeai

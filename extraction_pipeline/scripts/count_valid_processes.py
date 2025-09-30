@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 from typing import List, Set
-from maritalk import count_tokens
+from maritalk import count_tokens as maritalk_count_tokens
+from dotenv import load_dotenv
+import google.generativeai as genai
 
 # Importando paths
 from extraction_pipeline.config import (
@@ -45,6 +47,27 @@ EVAL_MODE = False
 EVAL_PATH = FILTERS_DIR / "ids_eval.json"
 
 # --- Funções Auxiliares ---
+
+def get_token_count(text: str, model_name: str) -> int:
+    """
+    Conta os tokens de um texto usando o tokenizador apropriado 
+    para a família do modelo (Maritalk ou Gemini).
+    """
+    if model_name.startswith("gemini"):
+        # Para modelos Gemini, usamos a biblioteca do Google
+        # O modelo é instanciado aqui para garantir que estamos usando o correto
+        try:
+            model = genai.GenerativeModel(model_name)
+            return model.count_tokens(text).total_tokens
+        except Exception as e:
+            print(f"Erro ao contar tokens com Gemini para o modelo '{model_name}': {e}")
+            return 0
+    elif "sabia" in model_name:
+        # Para modelos Maritalk, usamos a biblioteca original
+        return maritalk_count_tokens(text, model_name)
+    else:
+        # Lança um erro se um modelo não suportado for passado
+        raise ValueError(f"Modelo '{model_name}' não suportado para contagem de tokens.")
 
 def load_ids_from_json_files(file_paths: List[Path]) -> Set[str]:
     """
@@ -100,7 +123,7 @@ def extrair_texto_do_json(data: dict) -> str:
     # Converte o objeto Python de volta para uma string JSON formatada
     return json.dumps(data, ensure_ascii=False, indent=2)
 
-def analisar_media_tokens_json(json_dir: Path = Path(JSON_PATH), model_name: str = MODEL):
+def analisar_media_tokens_json(model_name: str, json_dir: Path = Path(JSON_PATH)):
     """
     Analisa um diretório com arquivos JSON, calcula o total de tokens
     e a média de tokens por arquivo.
@@ -133,7 +156,7 @@ def analisar_media_tokens_json(json_dir: Path = Path(JSON_PATH), model_name: str
             texto_para_tokenizar = extrair_texto_do_json(json_data)
             
             if texto_para_tokenizar:
-                total_tokens += count_tokens(texto_para_tokenizar, model_name)
+                total_tokens += get_token_count(texto_para_tokenizar, model_name)
                 arquivos_processados += 1
             # Não precisa mais de aviso, pois o dump de um json vazio é só "{}"
 
@@ -155,7 +178,7 @@ def analisar_media_tokens_json(json_dir: Path = Path(JSON_PATH), model_name: str
         print("\nNenhum arquivo JSON válido foi processado.")
 
 
-def analyze_dataset_counts():
+def analyze_dataset_counts(model_name: str):
     """
     Executa a análise e imprime um relatório explicativo.
     """
@@ -243,15 +266,22 @@ def analyze_dataset_counts():
             if txt_file:
                 try:
                     content = txt_file.read_text(encoding='utf-8', errors='ignore')
-                    total_tokens += count_tokens(content, MODEL)
+                    total_tokens += get_token_count(content, model_name)
                 except Exception as e:
                     print(f"Aviso: Não foi possível ler ou contar tokens do arquivo {txt_file}. Erro: {e}")
         
         average_tokens = total_tokens / final_runnable_with_txt_count
         print(f"  - Total de Tokens a Serem Processados: {total_tokens:,}")
         print(f"  - Média de Tokens por Documento: {average_tokens:,.0f}")
-    prompt_tokens = count_tokens(prompt_vitimas, MODEL) + count_tokens(prompt_inquerito_info, MODEL) + count_tokens(prompt_suspeitos, MODEL) + count_tokens(prompt_testemunhas, MODEL)
-    schemas_tokens = count_tokens(json.dumps(InqueritoTotal.model_json_schema(), indent=2, ensure_ascii=False), MODEL)
+
+    prompt_tokens = (
+        get_token_count(prompt_vitimas, model_name) + 
+        get_token_count(prompt_inquerito_info, model_name) + 
+        get_token_count(prompt_suspeitos, model_name) + 
+        get_token_count(prompt_testemunhas, model_name)
+    )
+
+    schemas_tokens = get_token_count(json.dumps(InqueritoTotal.model_json_schema(), indent=2, ensure_ascii=False), model_name)
     print(f"  - Total de tokens nos 4 prompts: {prompt_tokens:,.0f}")
     print(f"  - Total de tokens nos 4 schemas: {schemas_tokens:,.0f}")
     
@@ -268,20 +298,63 @@ def analyze_dataset_counts():
     
 
 if __name__ == '__main__':
-    total_tokens_in, final_runnable_with_txt_count = analyze_dataset_counts()
-    media_tokens_out = analisar_media_tokens_json()
-    total_tokens_out = media_tokens_out * final_runnable_with_txt_count
+    load_dotenv()
 
-    print(f"PREVISÃO DE TOTAL DE TOKENS DE ENTRADA: {total_tokens_in:,.0f}")
-    print(f"PREVISÃO DE TOTAL DE TOKENS DE SAÍDA: {total_tokens_out:,.0f}")
+    # Lista de modelos que você quer analisar
+    models_to_analyze = ["sabiazinho-3.0", "sabia-3.0", "gemini-2.5-flash", "gemini-2.5-pro"]
 
-    custo_in_sabiazinho = (total_tokens_in / 1_000_000) * PRECOS["sabiazinho-3.0"]["in"]
-    custo_out_sabiazinho = (total_tokens_out / 1_000_000) * PRECOS["sabiazinho-3.0"]["out"]
-    custo_total_sabiazinho = custo_in_sabiazinho + custo_out_sabiazinho
+    # Dicionário para armazenar os resultados de cada modelo
+    results = {}
 
-    custo_in_sabia = (total_tokens_in / 1_000_000) * PRECOS["sabia-3.0"]["in"]
-    custo_out_sabia = (total_tokens_out / 1_000_000) * PRECOS["sabia-3.0"]["out"]
-    custo_total_sabia = custo_in_sabia + custo_out_sabia
+    # --- Executa a análise para cada modelo ---
+    for model in models_to_analyze:
+        print(f"\n{'='*20} ANALISANDO MODELO: {model.upper()} {'='*20}")
+        try:
+            total_tokens_in, num_files = analyze_dataset_counts(model_name=model)
+            media_tokens_out = analisar_media_tokens_json(model_name=model)
+            
+            if media_tokens_out is not None and num_files > 0:
+                total_tokens_out = media_tokens_out * num_files
+                results[model] = {
+                    "tokens_in": total_tokens_in,
+                    "tokens_out": total_tokens_out
+                }
+            else:
+                print(f"Não foi possível calcular os tokens de saída para o modelo {model}.")
+                results[model] = None
 
-    print(f"PREVISÃO DE CUSTO SABIAZINHO: in: {custo_in_sabiazinho:,.0f} ; out: {custo_out_sabiazinho:,.0f} ; total: R$ {custo_total_sabiazinho:,.0f}")
-    print(f"PREVISÃO DE CUSTO SABIA: in: {custo_in_sabia:,.0f} ; out: {custo_out_sabia:,.0f} ; total: R$ {custo_total_sabia:,.0f}")
+        except ValueError as e:
+            print(f"Erro ao analisar o modelo {model}: {e}")
+        except Exception as e:
+            print(f"Ocorreu um erro inesperado ao processar o modelo {model}: {e}")
+
+    # --- Imprime o relatório de custos comparativo ---
+    print(f"\n\n{'='*20} RELATÓRIO DE CUSTOS COMPARATIVO {'='*20}")
+    
+    for model, data in results.items():
+        if data is None:
+            print(f"\n--- {model.upper()} ---")
+            print("Cálculo de custo não disponível.")
+            continue
+
+        tokens_in = data["tokens_in"]
+        tokens_out = data["tokens_out"]
+        
+        # Pega os preços do dicionário de configuração
+        model_prices = PRECOS.get(model)
+        if not model_prices:
+            print(f"Aviso: Preços para o modelo '{model}' não encontrados no arquivo de configuração.")
+            continue
+
+        custo_in = (tokens_in / 1_000_000) * model_prices["in"]
+        custo_out = (tokens_out / 1_000_000) * model_prices["out"]
+        custo_total = custo_in + custo_out
+        
+        print(f"\n--- PREVISÃO DE CUSTO PARA: {model.upper()} ---")
+        print(f"  - Tokens de Entrada : {tokens_in:,.0f}")
+        print(f"  - Tokens de Saída   : {tokens_out:,.0f}")
+        print(f"  - Custo Entrada (IN): R$ {custo_in:,.2f}")
+        print(f"  - Custo Saída (OUT) : R$ {custo_out:,.2f}")
+        print(f"  - CUSTO TOTAL       : R$ {custo_total:,.2f}")
+        
+    print(f"\n{'='*65}")
