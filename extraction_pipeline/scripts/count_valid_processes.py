@@ -220,62 +220,83 @@ def perform_dataset_file_analysis():
 
 def calculate_tokens_for_model(model_name: str, runnable_ids: Set[str], id_to_path: dict, file_count: int):
     """
-    Calcula o total de tokens de entrada para um conjunto de arquivos, dado um modelo específico.
-    Inclui um limite de debug para testar com um subconjunto de arquivos.
+    Calcula tokens de entrada para o modelo.
+    - Para Sabia/Sabiazinho: conta todos.
+    - Para Gemini: conta até 5000 processos via API e extrapola.
     """
-    # --- VARIÁVEL DE LIMITE PARA TESTES ---
-    # Defina o número de processos para testar. Para desativar, mude para: DEBUG_LIMIT = None
-    DEBUG_LIMIT = None
-
     if file_count == 0:
         return 0, 0
 
-    # --- LÓGICA DE LIMITAÇÃO ---
-    ids_to_process = list(runnable_ids) # Converte para lista para poder fatiar
-    processed_count = file_count
+    ids_to_process = list(runnable_ids)
 
-    if DEBUG_LIMIT is not None and file_count > DEBUG_LIMIT:
-        print(f"\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        print(f"!!! MODO DE TESTE ATIVADO: A contagem de tokens será feita para apenas {DEBUG_LIMIT} de {file_count} arquivos.")
-        print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        ids_to_process = ids_to_process[:DEBUG_LIMIT]
-        processed_count = len(ids_to_process) # Atualiza a contagem para o número real que será processado
+    # --- Caso Gemini (lento) ---
+    if model_name.startswith("gemini"):
+        SAMPLE_LIMIT = 5000
+        sample_ids = ids_to_process[:min(SAMPLE_LIMIT, file_count)]
+        print(f"\n[Gemini] Contando tokens em {len(sample_ids)} processos e extrapolando para {file_count}...")
 
-    print(f"\nCalculando tokens de ENTRADA para o modelo: {model_name}...")
-    
-    total_tokens = 0
-    # Itera sobre a lista (potencialmente limitada) de IDs
-    for process_id in ids_to_process:
-        proc_path = id_to_path[process_id]
-        txt_file = next(proc_path.glob('*.txt'), None)
-        if txt_file:
-            try:
-                content = txt_file.read_text(encoding='utf-8', errors='ignore')
-                total_tokens += get_token_count(content, model_name)
-            except Exception as e:
-                print(f"Aviso: Não foi possível ler ou contar tokens do arquivo {txt_file}. Erro: {e}")
-    
-    # Usa a contagem de processados para a média
-    average_tokens = total_tokens / processed_count
-    print(f"  - Total de Tokens nos Documentos: {total_tokens:,}")
-    print(f"  - Média de Tokens por Documento: {average_tokens:,.0f}")
+        total_tokens_sample = 0
+        for process_id in sample_ids:
+            proc_path = id_to_path[process_id]
+            txt_file = next(proc_path.glob("*.txt"), None)
+            if txt_file:
+                try:
+                    content = txt_file.read_text(encoding="utf-8", errors="ignore")
+                    total_tokens_sample += get_token_count(content, model_name)
+                except Exception as e:
+                    print(f"Aviso: não foi possível contar tokens de {txt_file}. Erro: {e}")
 
-    prompt_tokens = (
-        get_token_count(prompt_vitimas, model_name) + 
-        get_token_count(prompt_inquerito_info, model_name) + 
-        get_token_count(prompt_suspeitos, model_name) + 
-        get_token_count(prompt_testemunhas, model_name)
-    )
-    schemas_tokens = get_token_count(json.dumps(InqueritoTotal.model_json_schema(), indent=2, ensure_ascii=False), model_name)
-    
-    print(f"  - Total de tokens nos 4 prompts (por processo): {prompt_tokens:,.0f}")
-    print(f"  - Total de tokens nos schemas (por processo): {schemas_tokens:,.0f}")
+        if not sample_ids:
+            return 0, 0
 
-    # Usa a contagem de processados para o total
-    total_tokens_in = total_tokens + processed_count * (prompt_tokens + schemas_tokens)
-    
-    # Retorna tanto os tokens quanto a contagem de arquivos realmente processados
-    return total_tokens_in, processed_count
+        avg_tokens_per_doc = total_tokens_sample / len(sample_ids)
+        total_tokens = avg_tokens_per_doc * file_count
+
+        # Calcula prompts + schema (fixo por processo)
+        prompt_tokens = (
+            get_token_count(prompt_vitimas, model_name)
+            + get_token_count(prompt_inquerito_info, model_name)
+            + get_token_count(prompt_suspeitos, model_name)
+            + get_token_count(prompt_testemunhas, model_name)
+        )
+        schemas_tokens = get_token_count(
+            json.dumps(InqueritoTotal.model_json_schema(), indent=2, ensure_ascii=False), model_name
+        )
+
+        total_tokens_in = total_tokens + file_count * (prompt_tokens + schemas_tokens)
+        avg_tokens = avg_tokens_per_doc
+
+    # --- Caso Sabia/Sabiazinho (rápido) ---
+    else:
+        print(f"\n[{model_name}] Contando tokens em todos os {file_count} processos...")
+        total_tokens = 0
+        for process_id in ids_to_process:
+            proc_path = id_to_path[process_id]
+            txt_file = next(proc_path.glob("*.txt"), None)
+            if txt_file:
+                try:
+                    content = txt_file.read_text(encoding="utf-8", errors="ignore")
+                    total_tokens += get_token_count(content, model_name)
+                except Exception as e:
+                    print(f"Aviso: não foi possível contar tokens de {txt_file}. Erro: {e}")
+
+        prompt_tokens = (
+            get_token_count(prompt_vitimas, model_name)
+            + get_token_count(prompt_inquerito_info, model_name)
+            + get_token_count(prompt_suspeitos, model_name)
+            + get_token_count(prompt_testemunhas, model_name)
+        )
+        schemas_tokens = get_token_count(
+            json.dumps(InqueritoTotal.model_json_schema(), indent=2, ensure_ascii=False), model_name
+        )
+
+        total_tokens_in = total_tokens + file_count * (prompt_tokens + schemas_tokens)
+        avg_tokens = total_tokens / file_count if file_count else 0
+
+    print(f"  - Média de Tokens por Documento: {avg_tokens:,.0f}")
+    print(f"  - Total de Tokens (Entrada + Prompts + Schemas): {total_tokens_in:,.0f}")
+
+    return total_tokens_in, file_count
 
 # --- Bloco de Execução Principal ---
 
