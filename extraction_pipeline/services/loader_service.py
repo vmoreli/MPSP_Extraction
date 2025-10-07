@@ -7,7 +7,7 @@ from extraction_pipeline.config import (
     FILTERS_DIR
 )
 
-
+# Extrair numMP dos jsons de inclusão/exclusão, lida de forma inteligente com formatos diferentes
 def _load_json_set(file_path: Optional[str]) -> Set[str]:
     """
     Carrega um arquivo JSON e extrai um conjunto de números de processo (NumMP),
@@ -93,7 +93,7 @@ def load_process_paths(
         ValueError: Se `eval_mode` for True mas `eval_file_path` não for fornecido.
         FileNotFoundError: Se o `attachments_dir` não for encontrado.
     """
-    # --- ETAPA 1: Mapear todos os processos existentes no disco ---
+    # --- Mapear todos os processos existentes no disco ---
     # Esta etapa é necessária para ambos os modos, para converter números em caminhos.
     if not os.path.isdir(attachments_dir):
         raise FileNotFoundError(f"Attachments directory not found: {attachments_dir}")
@@ -111,7 +111,7 @@ def load_process_paths(
     
     final_process_numbers = set()
 
-    # --- ETAPA 2: Definir a lista de processos com base no modo ---
+    # --- Definir a lista de processos com base no modo ---
     if eval_mode:
         # --- MODO DE AVALIAÇÃO ---
         print("--- Running in EVALUATION mode ---")
@@ -145,8 +145,8 @@ def load_process_paths(
             print(f"Scanning all {len(all_discovered_processes)} processes found on disk.")
             final_process_numbers = all_discovered_processes - processes_to_exclude
 
-    # --- ETAPA 3: Converter os números de processo finais em caminhos ---
-    # Ordena para garantir que a ordem de processamento seja sempre a mesma.
+    # --- Converter os números de processo finais em caminhos ---
+    # Ordena para garantir que a ordem de processamento seja sempre a mesma
     sorted_final_numbers = sorted(list(final_process_numbers))
 
     final_paths = [

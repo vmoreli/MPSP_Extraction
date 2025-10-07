@@ -22,13 +22,10 @@ from extraction_pipeline.config import (
 # Importando os outros módulos
 from extraction_pipeline.services.loader_service import load_process_paths
 
-# Importando agente
-# ASSUMINDO QUE 'pipeline' PODE SER INICIALIZADO DENTRO DA FUNÇÃO TRABALHADORA
-# Se 'pipeline' for um objeto pesado, veja a nota no final da resposta.
+# Importando pipeline
 from extraction_pipeline.graphs.extract_data import pipeline
 
-# --- PASSO 1: Isolar a lógica de processamento em uma função trabalhadora ---
-# Esta função processará UM único caminho de processo.
+# Função que processa um único caminho de processo
 def process_single_path(process_path: str, unique_run_output_dir: Path, model: str) -> str:
     """
     Processa um único diretório de processo: lê o texto, invoca o pipeline e salva o resultado.
@@ -78,7 +75,7 @@ def process_single_path(process_path: str, unique_run_output_dir: Path, model: s
     except Exception as e:
         return f"ERROR: Failed to process {process_number}. Reason: {e}"
 
-# --- Função Principal Modificada ---
+# --- Função Principal ---
 def run_extraction_pipeline(
     attachments_dir: str = ATTACHMENTS_DIR,
     output_dir: str = OUTPUT_DIR,
@@ -86,14 +83,14 @@ def run_extraction_pipeline(
     model: str = MODEL,
     random_seed: Optional[int] = 42,
     exclusion_file: Optional[List[str]] = [
-        FILTERS_DIR / "outliers_bottom_1_percent.json",
-        FILTERS_DIR / "outliers_top_1_percent.json"
+        FILTERS_DIR / "outliers_bottom_1_percent.json",     # outliers inferiores de num de tokens
+        FILTERS_DIR / "outliers_top_1_percent.json"         # outliers superiores de num de tokens
     ],
     inclusion_file: Optional[List[str]] = [
-        FILTERS_DIR / "processes_passed_filter.json"
+        FILTERS_DIR / "processes_passed_filter.json"        # processos que passaram por filtro no assunto (homicídio e relacionados)
     ],
-    eval_mode: bool = False,
-    eval_path: Optional[str] = None
+    eval_mode: bool = False,                                # True se for fazer eval
+    eval_path: Optional[str] = None                         # Se for fazer eval, passa um caminho com os ids dos processos que serão utiizados
 ) -> None:
     """
     Executa o pipeline de extração de dados de forma paralela.
@@ -105,16 +102,16 @@ def run_extraction_pipeline(
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     unique_run_output_dir = Path(output_dir) / f"run_{run_timestamp}"
 
-    # 1. Carregar e filtrar os caminhos dos processos (sem alterações aqui)
+    # Carregar e filtrar os caminhos dos processos
     process_paths = load_process_paths(attachments_dir, exclusion_file, inclusion_file, eval_mode, eval_path)
 
-    # 2. Embaralhar a lista se uma seed foi fornecida
+    # Embaralhar a lista pela seed (aleatório determinístico)
     if random_seed is not None:
         print(f"Shuffling process list with random seed: {random_seed}")
         random.seed(random_seed)
         random.shuffle(process_paths)
 
-    # 3. Limitar o número de processos, se especificado
+    # Limitar o número de processos, se especificado
     if max_processes is not None:
         print(f"Limiting to a maximum of {max_processes} total processes.")
         process_paths = process_paths[:max_processes]
@@ -122,13 +119,8 @@ def run_extraction_pipeline(
     total_to_process = len(process_paths)
     print(f"\n--- Starting processing of {total_to_process} files using parallel workers ---")
 
-    # --- PASSO 2: Usar ProcessPoolExecutor para paralelizar a execução ---
-    # O número de workers será o valor de MAX_PROCESSES ou o número de CPUs se não for definido.
-    # Se MAX_PROCESSES era para limitar o *total* de arquivos, você pode querer um novo parâmetro
-    # para o número de workers, por exemplo, `num_workers = os.cpu_count()`.
-    # Aqui, estou reutilizando `max_processes` como o número de workers.
-    # Cuidado: Se `max_processes` for muito grande, pode consumir muita memória/CPU.
-    num_workers = max_processes if max_processes is not None else os.cpu_count()
+    # --- Usar ProcessPoolExecutor para paralelizar a execução ---
+    num_workers = os.cpu_count()
     print(f"Using {num_workers} parallel workers.")
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
@@ -149,5 +141,8 @@ def run_extraction_pipeline(
 
 
 if __name__ == '__main__':
-    # A guarda `if __name__ == '__main__':` é ESSENCIAL para que o multiprocessing funcione corretamente.
-    run_extraction_pipeline(eval_mode=True, eval_path="ids_eval.json")
+    run_extraction_pipeline(
+        eval_mode=True,
+        eval_path="ids_eval.json",
+        max_processes=5
+    )
