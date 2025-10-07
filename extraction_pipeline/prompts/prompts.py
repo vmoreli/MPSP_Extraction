@@ -9,6 +9,9 @@ Instruções:
 - Sua resposta deve seguir **exatamente** o schema completo definido para vítimas. 
 - O que for "não informado" não precisa ser preenchido.
 
+Vítimas:
+{vitimas}
+
 Promoção de arquivamento:
 {document}
 """
@@ -25,6 +28,9 @@ Instruções:
 - Sua resposta deve seguir **exatamente** o schema completo definido para suspeitos.
 - O que for "não informado" não precisa ser preenchido.
 
+Suspeitos:
+{suspeitos}
+
 Promoção de arquivamento:
 {document}    
 """
@@ -39,24 +45,37 @@ Instruções:
 - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
 - O que for "não informado" não precisa ser preenchido.
 
+Testemunhas:
+{testemunhas}
 
 Promoção de arquivamento:
 {document}    
 """
 
 prompt_inquerito_info = """
-Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas sobre o inquérito policial. 
-Siga cuidadosamente as instruções abaixo:
+Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas.
+Sua tarefa é extrair duas categorias principais de informação: 
+1) Um mapeamento de todas as pessoas envolvidas e seus respectivos papéis.
+2) Os detalhes sobre o inquérito policial.
 
-Instruções:
+Siga cuidadosamente todas as instruções abaixo.
+
+Instruções Gerais:
+- Sua resposta deve seguir o schema de saída.
 - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
-- Para datas e horas, mantenha o formato encontrado no documento, sem alterá-lo.
-- Para 'razao_arquivamento', copie exatamente o trecho do documento, sem resumir ou interpretar.
-- 'é_feminicidio' só deve ser True se a classificação do crime for Homicídio.
-- 'bem_roubado' deve ser preenchido sempre que a classificação do crime for Latrocínio.
-- 'resultado' deve seguir a lógica: Latrocínio é sempre consumado; caso de 'MORTE_SEM_INDICIO_DE_CRIME', resultado deve ser None.
-- Sua resposta deve seguir **exatamente** o schema completo definido para o inquérito.
-- O que for "não informado" não precisa ser preenchido.
+
+Instruções para o mapeamento de 'pessoas_envolvidas':
+- Identifique o nome completo de todas as vítimas, suspeitos/investigados e testemunhas mencionados no texto.
+- Preencha as listas `vitimas`, `suspeitos_investigados` e `testemunhas` com os nomes correspondentes.
+- Seja cuidadoso para não classificar a mesma pessoa em múltiplos papéis, a menos que o texto explicitamente suporte isso.
+
+Instruções para os detalhes do 'inquerito':
+- Para datas e horas, mantenha o formato exato encontrado no documento.
+- Para o campo 'razao_arquivamento', copie textualmente o trecho do documento que justifica o arquivamento, sem resumir ou interpretar.
+- As seguintes regras de negócio **devem** ser seguidas:
+    - O campo 'é_feminicidio' só pode ser True se a 'classificacao_crime' for Homicídio.
+    - O campo 'bem_roubado' deve ser preenchido se a 'classificacao_crime' for Latrocínio.
+    - O campo 'resultado' segue uma lógica específica: Latrocínio é sempre 'CONSUMADO'. Para 'MORTE_SEM_INDICIO_DE_CRIME', o resultado deve ser nulo (não preenchido).
 
 Promoção de arquivamento:
 {document}

@@ -6,7 +6,7 @@ if __name__ == "__main__":
     graph = pipeline.get_graph(xray=True)
 
     # --- Salvar PNG ---
-    png_bytes = graph.draw_mermaid_png()
+    png_bytes = graph.draw_mermaid_png(max_retries=5, retry_delay=2.0)
     output_dir = "outputs"
     os.makedirs(output_dir, exist_ok=True)
     png_path = os.path.join(output_dir, "grafo.png")

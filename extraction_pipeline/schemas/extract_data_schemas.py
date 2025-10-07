@@ -102,14 +102,32 @@ class Testemunhas(BaseModel):
     """Lista de pessoas identificadas como testemunhas no inquerito policial aquivado."""
     testemunhas: Optional[List[Pessoa]] = Field(None, description="Lista de testemunhas") 
 
-
+# ---------------------------------------------------
+# Schema para mapeamento inicial de pessoas envolvidas
+# ---------------------------------------------------
+class PessoasEnvolvidas(BaseModel):
+    """Mapeamento de todas as pessoas mencionadas no documento e seus respectivos papéis."""
+    
+    vitimas: List[str] = Field(
+        default_factory=list,
+        description="Lista contendo o nome completo de cada vítima identificada no inquérito."
+    )
+    suspeitos_investigados: List[str] = Field(
+        default_factory=list,
+        description="Lista contendo o nome completo de cada suspeito ou investigado identificado."
+    )
+    testemunhas: List[str] = Field(
+        default_factory=list,
+        description="Lista contendo o nome completo de cada testemunha identificada."
+    )
 
 # ---------------------------------------------------
 # Schema 'Inquerito' 
 # ---------------------------------------------------
-
 class Inquerito(BaseModel):
     """Informações estruturadas sobre a ocorrência descrita no inquérito policial."""
+    # --- Pessoas envolvidas para auxiliar próximos nós ---
+    pessoas_envolvidas: PessoasEnvolvidas                           = Field(description="Mapeamento de todas as pessoas mencionadas no documento e seus respectivos papéis.")
     
     # --- Nova Seção de Classificação do Crime ---
     classificacao_crime: ClassificacaoCrime                         = Field(None, description="Classificação jurídica principal do fato.")
