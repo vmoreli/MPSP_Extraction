@@ -18,11 +18,11 @@ Promoção de arquivamento:
 
 
 prompt_suspeitos = """
-Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas sobre os suspeitos/investigados.  
+Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas sobre os autores suspeitos/investigados.  
 Siga cuidadosamente as instruções abaixo:
 
 Instruções:
-- Extraia **apenas informações sobre os suspeitos/investigados** mencionadas no documento.
+- Extraia **apenas informações sobre os autores suspeitos/investigados** mencionadas no documento.
 - Quando o sexo do indivíduo não for fornecido explicitamente, infira o sexo da pessoa pelo nome.
 - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
 - Sua resposta deve seguir **exatamente** o schema completo definido para suspeitos.
@@ -52,30 +52,43 @@ Promoção de arquivamento:
 {document}    
 """
 
-prompt_inquerito_info = """
-Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas.
-Sua tarefa é extrair duas categorias principais de informação: 
-1) Um mapeamento de todas as pessoas envolvidas e seus respectivos papéis.
-2) Os detalhes sobre o inquérito policial.
+prompt_mapeamento = """
+Você é um assistente especializado em analisar promoções de arquivamento e:
+1) Identificar as pessoas mencionadas e classificá-las de acordo com o papel desempenhado no inquérito.
+2) Classificar o tipo de crime: homicídio, latrocínio ou mortes por causas naturais.
 
-Siga cuidadosamente todas as instruções abaixo.
+Instruções:
+- Identifique **todas as pessoas mencionadas** no texto, incluindo vítimas, autores (inclui também suspeitos/investigados) e testemunhas.
+- Use nomes **completos** sempre que disponíveis.
+- Classifique cada pessoa em **apenas um papel**, a menos que o texto indique explicitamente que ela exerceu mais de um.
+- Um inquérito que tenha autores investigados por uma morte não pode ser tratado como morte por causas naturais.
+
+Promoção de arquivamento:
+{document}
+"""
+
+prompt_inquerito_info = """
+Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas sobre o inquérito policial.
+
+Sua tarefa é **extrair apenas os detalhes do inquérito**, conforme o schema de saída.
 
 Instruções Gerais:
-- Sua resposta deve seguir o schema de saída.
-- Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
+- Caso alguma informação não esteja disponível, deixe o campo em branco — nunca invente ou use "não informado".
+- Mantenha datas, horários e trechos de texto exatamente como aparecem no documento.
 
-Instruções para o mapeamento de 'pessoas_envolvidas':
-- Identifique o nome completo de todas as vítimas, suspeitos/investigados e testemunhas mencionados no texto.
-- Preencha as listas `vitimas`, `suspeitos_investigados` e `testemunhas` com os nomes correspondentes.
-- Seja cuidadoso para não classificar a mesma pessoa em múltiplos papéis, a menos que o texto explicitamente suporte isso.
+Instruções específicas:
+- Classifique o crime conforme o conteúdo do texto (Homicídio, Latrocínio, ou Morte não criminosa).
+- Considere como **morte por causas naturais** apenas aquelas que não decorrem da ação de suspeitos/investigados.
+- O campo `razao_arquivamento` deve conter o **trecho literal** que justifica o arquivamento, sem resumo ou interpretação.
+- As seguintes regras de negócio **devem ser respeitadas**:
+    - O campo `é_feminicidio` só pode ser `True` se a `classificacao_crime` for **Homicídio**.
+    - O campo `bem_roubado` deve ser preenchido apenas se a `classificacao_crime` for **Latrocínio**.
+    - O campo `resultado` segue a lógica:
+        - **Latrocínio** → sempre `CONSUMADO`
+        - **Morte não criminosa** → campo não preenchido
 
-Instruções para os detalhes do 'inquerito':
-- Para datas e horas, mantenha o formato exato encontrado no documento.
-- Para o campo 'razao_arquivamento', copie textualmente o trecho do documento que justifica o arquivamento, sem resumir ou interpretar.
-- As seguintes regras de negócio **devem** ser seguidas:
-    - O campo 'é_feminicidio' só pode ser True se a 'classificacao_crime' for Homicídio.
-    - O campo 'bem_roubado' deve ser preenchido se a 'classificacao_crime' for Latrocínio.
-    - O campo 'resultado' segue uma lógica específica: Latrocínio é sempre 'CONSUMADO'. Para 'MORTE_SEM_INDICIO_DE_CRIME', o resultado deve ser nulo (não preenchido).
+Tipo de crime:
+{classification}
 
 Promoção de arquivamento:
 {document}

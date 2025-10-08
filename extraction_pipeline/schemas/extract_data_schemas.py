@@ -1,7 +1,6 @@
 import enum
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List
-from datetime import date, time
 
 # ---------------------------------------------------
 # Enums para vocabulário controlado
@@ -11,9 +10,7 @@ class ClassificacaoCrime(str, enum.Enum):
     """Define a classificação jurídica principal do crime."""
     HOMICIDIO = "Homicídio"
     LATROCINIO = "Latrocínio (roubo seguido de morte)"
-    LESAO_CORPORAL_SEGUIDA_DE_MORTE = "Lesão corporal seguida de morte"
-    MORTE_A_ESCLARECER = "Morte a esclarecer / Morte suspeita"
-    MORTE_SEM_INDICIO_DE_CRIME = "Morte sem indício de crime (acidental, natural, etc.)"
+    MORTE_CAUSAS_NATURAIS = "Morte por causas naturais"
 
 class ResultadoCrime(str, enum.Enum):
     """Define o resultado do crime (se foi consumado ou tentado)."""
@@ -125,12 +122,6 @@ class PessoasEnvolvidas(BaseModel):
 # Schema 'Inquerito' 
 # ---------------------------------------------------
 class Inquerito(BaseModel):
-    """Informações estruturadas sobre a ocorrência descrita no inquérito policial."""
-    # --- Pessoas envolvidas para auxiliar próximos nós ---
-    pessoas_envolvidas: PessoasEnvolvidas                           = Field(description="Mapeamento de todas as pessoas mencionadas no documento e seus respectivos papéis.")
-    
-    # --- Nova Seção de Classificação do Crime ---
-    classificacao_crime: ClassificacaoCrime                         = Field(None, description="Classificação jurídica principal do fato.")
     resultado: Optional[ResultadoCrime]                             = Field(None, description="Resultado do crime (Consumado ou Tentado).")
     é_feminicidio: bool                                             = Field(False, description="Marque True se o crime for classificado como feminicídio (qualificadora do homicídio).")
     
@@ -147,8 +138,7 @@ class Inquerito(BaseModel):
     longitude: Optional[float]                                      = Field(None, description="Longitude do local da ocorrência.")
     municipio: Optional[str]                                        = Field(None, description="Município onde a ocorrência se deu.")
     
-    # --- Campos do Modus Operandi e Evidências ---
-    tipo_de_acao: Optional[str]                                     = Field(None, description="Modus operandi ou tipo de ação principal (ex: 'disparos de arma de fogo', 'espancamento', 'asfixia', 'ataque com arma branca').")
+    # --- Campos de Evidências ---
     arma_utilizada: Optional[str]                                   = Field(None, description="Tipo de arma empregada pelo autor (ex: 'revólver calibre 38', 'faca de cozinha', 'pedaço de madeira').")
     bem_roubado: Optional[str]                                      = Field(None, description="Descrição do bem subtraído, relevante para casos de latrocínio.")
     
@@ -159,30 +149,12 @@ class Inquerito(BaseModel):
     razao_arquivamento: Optional[str]                               = Field(None, description="Razão do arquivamento, trecho exatamente como está escrito no documento original.")
 
 
-    @model_validator(mode="after")
-    def validar_consistencia_crime(self):
-        """Garante a consistência lógica entre a classificação, resultado e qualificadoras do crime."""
-        
-        # Se não há classificação, não há o que validar.
-        if not self.classificacao_crime:
-            return self
-
-        # Regra 1: Feminicídio é uma qualificadora do Homicídio.
-        if self.é_feminicidio and self.classificacao_crime != ClassificacaoCrime.HOMICIDIO:
-            raise ValueError("Feminicídio só pode ser qualificado em um crime de Homicídio.")
-
-        # Regra 2: Latrocínio é sempre consumado (pois a morte ocorreu) e deve ter um bem roubado.
-        if self.classificacao_crime == ClassificacaoCrime.LATROCINIO:
-            if self.resultado == ResultadoCrime.TENTADO:
-                raise ValueError("Latrocínio (roubo seguido de morte) é, por definição, um crime consumado.")
-            self.resultado = ResultadoCrime.CONSUMADO # Auto-corrige para consumado
-            if not self.bem_roubado:
-                raise ValueError("Para o crime de Latrocínio, o campo 'bem_roubado' deve ser preenchido.")
-
-        # Regra 3: Se não há indício de crime, não pode ser tentado/consumado nem ter qualificadoras.
-        if self.classificacao_crime == ClassificacaoCrime.MORTE_SEM_INDICIO_DE_CRIME:
-            self.resultado = None
-            self.é_feminicidio = False
-            self.bem_roubado = None
-            
-        return self
+# ---------------------------------------------------
+# Schema 'ResumoProcesso' 
+# ---------------------------------------------------
+class ResumoProcesso(BaseModel):
+    """Mapeamento das pessoas envolvidas no processo e classificação por tipo de crime."""
+    # --- Pessoas envolvidas para auxiliar próximos nós ---
+    pessoas_envolvidas: PessoasEnvolvidas                           = Field(description="Mapeamento de todas as pessoas mencionadas no documento e seus respectivos papéis.")
+    # --- Classificação do Crime ---
+    classificacao_crime: ClassificacaoCrime                         = Field(None, description="Classificação principal do fato. Se há possíveis autores, não deve ser tratado como morte por causas naturais.")
