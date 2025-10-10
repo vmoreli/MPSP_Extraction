@@ -22,7 +22,6 @@ class NaturezaAutoria(str, enum.Enum):
     CONHECIDA = "Conhecida"
     DESCONHECIDA = "Desconhecida"
 
-
 class Pessoa(BaseModel):
     """Informações sobre uma pessoa envolvida no inquérito."""
     nome: Optional[str]                     = Field(None, description="Nome da pessoa")

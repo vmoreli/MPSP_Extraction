@@ -18,7 +18,8 @@ from extraction_pipeline.prompts.prompts import (
     prompt_vitimas,
     prompt_testemunhas,
     prompt_suspeitos,
-    prompt_inquerito_info
+    prompt_inquerito_info,
+    prompt_mapeamento
 )
 # Importando schemas do seu projeto (ajuste se necessário)
 from extraction_pipeline.graphs.extract_data import (
@@ -222,7 +223,7 @@ def calculate_tokens_for_model(model_name: str, runnable_ids: Set[str], id_to_pa
     """
     Calcula tokens de entrada para o modelo.
     - Para Sabia/Sabiazinho: conta todos.
-    - Para Gemini: conta até 5000 processos via API e extrapola.
+    - Para Gemini: conta até 1000 processos via API e extrapola.
     """
     if file_count == 0:
         return 0, 0
@@ -231,7 +232,7 @@ def calculate_tokens_for_model(model_name: str, runnable_ids: Set[str], id_to_pa
 
     # --- Caso Gemini (lento) ---
     if model_name.startswith("gemini"):
-        SAMPLE_LIMIT = 5000
+        SAMPLE_LIMIT = 1000
         sample_ids = ids_to_process[:min(SAMPLE_LIMIT, file_count)]
         print(f"\n[Gemini] Contando tokens em {len(sample_ids)} processos e extrapolando para {file_count}...")
 
@@ -258,12 +259,14 @@ def calculate_tokens_for_model(model_name: str, runnable_ids: Set[str], id_to_pa
             + get_token_count(prompt_inquerito_info, model_name)
             + get_token_count(prompt_suspeitos, model_name)
             + get_token_count(prompt_testemunhas, model_name)
+            + get_token_count(prompt_mapeamento, model_name)
         )
         schemas_tokens = get_token_count(
             json.dumps(InqueritoTotal.model_json_schema(), indent=2, ensure_ascii=False), model_name
         )
 
-        total_tokens_in = total_tokens + file_count * (prompt_tokens + schemas_tokens)
+        num_prompts = 5
+        total_tokens_in = num_prompts * total_tokens + file_count * (prompt_tokens + schemas_tokens)
         avg_tokens = avg_tokens_per_doc
 
     # --- Caso Sabia/Sabiazinho (rápido) ---
@@ -285,12 +288,14 @@ def calculate_tokens_for_model(model_name: str, runnable_ids: Set[str], id_to_pa
             + get_token_count(prompt_inquerito_info, model_name)
             + get_token_count(prompt_suspeitos, model_name)
             + get_token_count(prompt_testemunhas, model_name)
+            + get_token_count(prompt_mapeamento, model_name)
         )
         schemas_tokens = get_token_count(
             json.dumps(InqueritoTotal.model_json_schema(), indent=2, ensure_ascii=False), model_name
         )
 
-        total_tokens_in = total_tokens + file_count * (prompt_tokens + schemas_tokens)
+        num_prompts = 5
+        total_tokens_in = num_prompts * total_tokens + file_count * (prompt_tokens + schemas_tokens)
         avg_tokens = total_tokens / file_count if file_count else 0
 
     print(f"  - Média de Tokens por Documento: {avg_tokens:,.0f}")
@@ -304,21 +309,20 @@ if __name__ == '__main__':
     load_dotenv()
     genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-    # 1. Executa a análise de arquivos UMA VEZ (reporta o total)
+    # Executa a análise de arquivos UMA VEZ (reporta o total)
     runnable_ids, id_to_path, num_files = perform_dataset_file_analysis()
 
     if num_files == 0 or not runnable_ids:
         print("\nNenhum arquivo para processar. Encerrando o script de cálculo de custos.")
         exit()
 
-    # 2. Itera sobre os modelos para calcular tokens e custos (pode usar o limite interno)
+    # Itera sobre os modelos para calcular tokens e custos (pode usar o limite interno)
     models_to_analyze = ["sabiazinho-3.0", "sabia-3.0", "gemini-2.5-flash", "gemini-2.5-pro"]
     results = {}
 
     for model in models_to_analyze:
         print(f"\n{'='*20} ANALISANDO CUSTOS PARA O MODELO: {model.upper()} {'='*20}")
         try:
-            # AGORA, a função retorna dois valores
             total_tokens_in, processed_files_count = calculate_tokens_for_model(model, runnable_ids, id_to_path, num_files)
             
             media_tokens_out = analisar_media_tokens_json(model_name=model)
