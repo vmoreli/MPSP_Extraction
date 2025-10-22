@@ -6,3 +6,4 @@ output/
 rev_humana
 eval/
 *.zip
+*.json
