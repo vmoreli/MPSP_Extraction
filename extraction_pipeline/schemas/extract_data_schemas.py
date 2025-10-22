@@ -21,6 +21,7 @@ class NaturezaAutoria(str, enum.Enum):
     """Define a natureza da autoria do crime investigado."""
     CONHECIDA = "Conhecida"
     DESCONHECIDA = "Desconhecida"
+    NAO_APLICAVEL = "Não aplicável"
 
 class Pessoa(BaseModel):
     """Informações sobre uma pessoa envolvida no inquérito."""
@@ -66,10 +67,7 @@ class Vitima(Pessoa):
         """Garante a consistência entre campos condicionais da vítima."""
         
         # Validação da morte
-        if self.faleceu:
-            if not self.causa_juridica_da_morte:
-                raise ValueError("Se 'faleceu=True', o campo 'causa_juridica_da_morte' deve ser preenchido.")
-        else:
+        if not self.faleceu:
             # Se a vítima não faleceu, a causa da morte deve ser nula.
             self.causa_juridica_da_morte = None
 
