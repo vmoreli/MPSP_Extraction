@@ -3,6 +3,9 @@ from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Tuple, Union
 from enum import Enum
+from extraction_pipeline.services.llm_services import call_llm
+from extraction_pipeline.prompts.prompts import prompt_compare_str
+from extraction_pipeline.schemas.eval_schemas import Equal
 
 # ============================================================
 # CONFIGURAÇÃO DE ENTRADA
@@ -18,13 +21,27 @@ STR_COMPARE_EMB = False
 # Funções utilitárias de similaridade e comparação
 # ============================================================
 
+def compare_strings_llm_as_a_judge(gt_str, value_str):
+    prompt = prompt_compare_str.format(
+        gt_str=gt_str,
+        value_str=value_str
+    )
+
+    response_content = call_llm(
+        prompt=prompt,
+        output_schema=Equal
+    )
+
+    return response_content.equal
+    
+
 def compare_strings_similarity(gt_str: str, value_str: str):
     if STR_COMPARE_EMB: # Comparação com embeddings:
         # chama função de comparação por embeddings
         return
     else:
-        # chama função de comparação por llm
-        return
+        eq = compare_strings_llm_as_a_judge(gt_str, value_str)
+        return eq
 
 def compare_values(gt_value: Any, pred_value: Any) -> Tuple[bool, float]:
     """
@@ -78,9 +95,17 @@ def compare_lists(gt_list: List[Any], pred_list: List[Any]) -> Tuple[bool, float
 
     # Se lista de strings simples
     if all(isinstance(x, str) for x in gt_list):
-        matches = [max(string_similarity(x, y) for y in pred_list) for x in gt_list]
-        avg_sim = sum(matches) / len(matches)
-        return avg_sim > 0.85, avg_sim
+        matches = [
+            max(compare_strings_similarity(x, y) for y in pred_list)
+            for x in gt_list
+        ]
+
+        # Se qualquer uma das comparações não for igual (False ou abaixo do limiar)
+        all_equal = all(match for match in matches)
+        avg_sim = sum(float(match) for match in matches) / len(matches)
+
+        return all_equal, avg_sim
+
 
     # Se lista de dicionários (ex: vítimas)
     if all(isinstance(x, dict) for x in gt_list):

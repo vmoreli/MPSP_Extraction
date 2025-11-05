@@ -93,3 +93,17 @@ Tipo de crime:
 Promoção de arquivamento:
 {document}
 """
+
+prompt_compare_str = """
+Você deve comparar duas strings que se referem ao mesmo campo.
+
+String de referência (ground truth):
+{gt_str}
+
+String avaliada (valor extraído ou previsto):
+{value_str}
+
+Instruções:
+- Determine se a string avaliada representa corretamente a string de referência.
+- Considere sinônimos, diferenças de formatação ou pequenas variações que não alterem o significado.
+"""
