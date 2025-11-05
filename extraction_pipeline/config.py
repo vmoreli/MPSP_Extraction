@@ -8,8 +8,9 @@ EDA_DIR = DATA_DIR / "eda"
 LLM_DIR = DATA_DIR / "llm"
 FILTERS_DIR = DATA_DIR / "filters"
 OUTPUT_DIR = "output"
-MODEL="sabiazinho-3.0"
 MAX_PROCESSES=None
+
+MODEL="sabia-3.1"
 PRECOS = {  # preços em reais por milhão de tokens
     "sabiazinho-3.0": {
         "in": 0.7,
@@ -18,6 +19,10 @@ PRECOS = {  # preços em reais por milhão de tokens
     "sabia-3.0": {
         "in": 3.5,
         "out": 7.0
+    },
+    "sabia-3.1":{
+        "in": 5,
+        "out": 10
     },
     "gemini-2.5-pro": { # considerei dolar a 5.50
         "in": 6.875,

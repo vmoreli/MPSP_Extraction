@@ -27,8 +27,8 @@ def mapear_envolvidos_classificar_node(state) -> Command[Literal["extrair inform
     document = state.document
     prompt = prompt_mapeamento.format(document=document)
 
-    response_content = call_llm(prompt=prompt, output_schema=ResumoProcesso)
-    resumo_processo = ResumoProcesso.model_validate_json(response_content)
+    resumo_processo = call_llm(prompt=prompt, output_schema=ResumoProcesso)
+    # resumo_processo = ResumoProcesso.model_validate_json(response_content)
 
     eh_morte_natural = (resumo_processo.classificacao_crime == ClassificacaoCrime.MORTE_CAUSAS_NATURAIS)
 
@@ -48,8 +48,8 @@ def extrair_info_inquerito_node(state) -> Command[Literal["extrair vítimas", "e
     resumo_processo = state.resumo_processo
     prompt = prompt_inquerito_info.format(document=document, classification=resumo_processo.classificacao_crime)
 
-    response_content = call_llm(prompt=prompt, output_schema=Inquerito)
-    inquerito_info = Inquerito.model_validate_json(response_content)
+    inquerito_info = call_llm(prompt=prompt, output_schema=Inquerito)
+    # inquerito_info = Inquerito.model_validate_json(response_content)
 
     pessoas_envolvidas = resumo_processo.pessoas_envolvidas
     vitimas = pessoas_envolvidas.vitimas
@@ -58,9 +58,9 @@ def extrair_info_inquerito_node(state) -> Command[Literal["extrair vítimas", "e
 
     goto = END
     if vitimas:
-        goto = "extrair vitimas"
+        goto = "extrair vítimas"
         print(f"-> Próximo passo: {goto}")
-    if suspeitos:
+    elif suspeitos:
         goto = "extrair suspeitos"
         print(f"-> Próximo passo: {goto}")
     elif testemunhas:
@@ -86,8 +86,8 @@ def extrair_vitimas_node(state) -> Command[Literal["extrair suspeitos", "extrair
 
     prompt = prompt_vitimas.format(document=document, vitimas=vitimas_str)
 
-    response_content = call_llm(prompt=prompt, output_schema=Vitimas)
-    vitimas = Vitimas.model_validate_json(response_content)
+    vitimas = call_llm(prompt=prompt, output_schema=Vitimas)
+    # vitimas = Vitimas.model_validate_json(response_content)
 
     # Decisão do próximo passo
     goto = END # O padrão é terminar se não houver mais ninguém
@@ -123,8 +123,8 @@ def extrair_suspeitos_node(state) -> Command[Literal["extrair testemunhas", END]
 
     prompt = prompt_suspeitos.format(document=document, suspeitos=suspeitos_str)
 
-    response_content = call_llm(prompt=prompt, output_schema=Suspeitos)
-    suspeitos = Suspeitos.model_validate_json(response_content)
+    suspeitos = call_llm(prompt=prompt, output_schema=Suspeitos)
+    # suspeitos = Suspeitos.model_validate_json(response_content)
 
     # Decisão do próximo passo
     goto = END # O padrão é terminar se não houver mais ninguém
@@ -155,8 +155,8 @@ def extrair_testemunhas_node(state):
 
     prompt = prompt_testemunhas.format(document=document, testemunhas=testemunhas_str)
 
-    response_content = call_llm(prompt=prompt, output_schema=Testemunhas)
-    testemunhas = Testemunhas.model_validate_json(response_content)
+    testemunhas = call_llm(prompt=prompt, output_schema=Testemunhas)
+    # testemunhas = Testemunhas.model_validate_json(response_content)
 
     goto = END
 
