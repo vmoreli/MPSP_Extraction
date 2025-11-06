@@ -10,9 +10,9 @@ FILTERS_DIR = DATA_DIR / "filters"
 OUTPUT_DIR = "output"
 MAX_PROCESSES=None
 
-MODEL="sabia-3.1"
+MODEL="sabiazinho-3"
 PRECOS = {  # preços em reais por milhão de tokens
-    "sabiazinho-3.0": {
+    "sabiazinho-3": {
         "in": 0.7,
         "out": 2.1
     },

@@ -6,3 +6,5 @@ dotenv
 google-genai
 pandas
 openpyxl
+sentence-transformers
+scikit-learn
