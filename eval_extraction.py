@@ -3,9 +3,44 @@ from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Tuple, Union
 from enum import Enum
+# ============================================================
+# LLM
+# ============================================================
+
 from extraction_pipeline.services.llm_services import call_llm
 from extraction_pipeline.prompts.prompts import prompt_compare_str
 from extraction_pipeline.schemas.eval_schemas import Equal
+
+# ============================================================
+# EMBEDDINGS
+# ============================================================
+
+from sentence_transformers import SentenceTransformer
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Config flags
+STR_COMPARE_EMB = False                  # Ativa embeddings ou não
+sentence_model= None
+
+def get_sentence_model():
+    """Carrega o modelo globalmente"""
+    global sentence_model
+    if sentence_model is None:
+        sentence_model = SentenceTransformer("intfloat/multilingual-e5-large")
+    return sentence_model
+
+
+def cosine_sim(vec1, vec2):
+    """Retorna similaridade coseno"""
+    return float(cosine_similarity([vec1], [vec2])[0][0])
+
+
+def sentence_embedding(text: str) -> np.ndarray:
+    """Retorna embedding da frase inteira com modelo pretreinado (multilingual-e5-large)."""
+    model = get_sentence_model()
+    return model.encode(text or "", convert_to_numpy=True)
+
 
 # ============================================================
 # CONFIGURAÇÃO DE ENTRADA
@@ -15,10 +50,8 @@ GROUNDTRUTH_PATH = Path("")
 PREDICOES_PATH = Path("")
 OUTPUT_PATH = Path("")
 
-STR_COMPARE_EMB = False
-
 # ============================================================
-# Funções utilitárias de similaridade e comparação
+# LLM como juiz
 # ============================================================
 
 def compare_strings_llm_as_a_judge(gt_str, value_str):
@@ -31,14 +64,18 @@ def compare_strings_llm_as_a_judge(gt_str, value_str):
         prompt=prompt,
         output_schema=Equal
     )
-
     return response_content.equal
+
+# ============================================================
+# Funções utilitárias de similaridade e comparação
+# ============================================================
     
 
 def compare_strings_similarity(gt_str: str, value_str: str):
-    if STR_COMPARE_EMB: # Comparação com embeddings:
-        # chama função de comparação por embeddings
-        return
+    if STR_COMPARE_EMB: # Comparação com embeddings
+        emb_gt = sentence_embedding(gt_str)
+        emb_pred = sentence_embedding(value_str)
+        return cosine_sim(emb_gt, emb_pred)
     else:
         eq = compare_strings_llm_as_a_judge(gt_str, value_str)
         return eq
