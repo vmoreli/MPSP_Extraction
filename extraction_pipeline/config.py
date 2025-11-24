@@ -10,7 +10,7 @@ FILTERS_DIR = DATA_DIR / "filters"
 OUTPUT_DIR = "output"
 MAX_PROCESSES=None
 
-MODEL="sabiazinho-3"
+MODEL="gemini-2.5-pro"
 PRECOS = {  # preços em reais por milhão de tokens
     "sabiazinho-3": {
         "in": 0.7,

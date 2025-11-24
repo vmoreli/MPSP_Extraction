@@ -8,3 +8,5 @@ pandas
 openpyxl
 sentence-transformers
 scikit-learn
+matplotlib
+seaborn
