@@ -7,3 +7,4 @@ rev_humana
 eval/
 *.zip
 *.json
+eval_results/

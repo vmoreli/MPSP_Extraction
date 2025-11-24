@@ -1,434 +1,601 @@
+import os
 import json
-from typing import List, Dict, Any, Callable
-from difflib import SequenceMatcher
-from sentence_transformers import SentenceTransformer
+import pandas as pd
 import numpy as np
+from typing import List, Dict, Any, Callable, Tuple
+from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# ----------------------------------------------------------------------------
-# Constante de Similaridade
-# ----------------------------------------------------------------------------
-# Define o quão similar (0.0 a 1.0) duas strings precisam ser 
+# ==============================================================================
+# CONFIGURAÇÕES
+# ==============================================================================
 SIMILARITY_THRESHOLD = 0.8
+MODEL_NAME = "intfloat/multilingual-e5-large"
 
-# ============================================================
-# EMBEDDINGS
-# ============================================================
-
-sentence_model= None
+# ==============================================================================
+# SINGLETON MODEL
+# ==============================================================================
+_sentence_model = None
 
 def get_sentence_model():
-    """Carrega o modelo globalmente"""
-    global sentence_model
-    if sentence_model is None:
-        sentence_model = SentenceTransformer("intfloat/multilingual-e5-large")
-    return sentence_model
-
-
-def cosine_sim(vec1, vec2):
-    """Retorna similaridade coseno"""
-    return float(cosine_similarity([vec1], [vec2])[0][0])
-
+    global _sentence_model
+    if _sentence_model is None:
+        print(f"Carregando modelo {MODEL_NAME}...")
+        _sentence_model = SentenceTransformer(MODEL_NAME)
+    return _sentence_model
 
 def sentence_embedding(text: str) -> np.ndarray:
-    """Retorna embedding da frase inteira com modelo pretreinado (multilingual-e5-large)."""
     model = get_sentence_model()
+    # E5 requer prefixo "query:" para buscas assimetricas, mas para comparação direta
+    # semântica, o uso puro ou com "passage:" funciona bem. Vamos usar puro aqui.
     return model.encode(text or "", convert_to_numpy=True)
 
-# ----------------------------------------------------------------------------
-# Funções de Comparação
-# ----------------------------------------------------------------------------
+def cosine_sim(vec1, vec2):
+    return float(cosine_similarity([vec1], [vec2])[0][0])
 
-def compare_strings_with_similarity(gt_str: str, pred_str: str, field_name: str, process_id: str):
-    """
-    Compara duas strings:
-    - Se forem idênticas (após normalização), retorna 1.0.
-    - Caso contrário, calcula similaridade semântica via embeddings.
-    """
-    # Normaliza as strings
-    gt_clean = gt_str.lower().strip()
-    pred_clean = pred_str.lower().strip()
+# ==============================================================================
+# CLASSE COLETORA DE MÉTRICAS
+# ==============================================================================
 
-    # Verifica igualdade exata
-    if gt_clean == pred_clean:
-        print(f"[OK]         {process_id} | {field_name}: '{gt_str}'")
-        return 1.0
+class MetricsCollector:
+    def __init__(self):
+        self.records = []
 
-    # Se não forem idênticas, calcula similaridade via embeddings
-    emb_gt = sentence_embedding(gt_clean)
-    emb_pred = sentence_embedding(pred_clean)
-    ratio_emb = cosine_sim(emb_gt, emb_pred)
+    def log(self, process_id: str, context: str, field: str, 
+            gt_val: Any, pred_val: Any, result_tag: str, score: float = 1.0):
+        """
+        Registra uma comparação atômica.
+        """
+        self.records.append({
+            "process_id": process_id,
+            "context": context,      # Ex: "resumo", "vitimas"
+            "field": field,          # Ex: "cor", "idade", "entidade_pessoa"
+            "gt_value": str(gt_val) if gt_val is not None else None,
+            "pred_value": str(pred_val) if pred_val is not None else None,
+            "result": result_tag,    # Taxonomia (MATCH_EXACT, VALUE_MISMATCH...)
+            "score": score           # 0.0 a 1.0
+        })
 
-    # Log de resultado
-    if ratio_emb >= SIMILARITY_THRESHOLD:
-        print(
-            f"[OK-SIMILAR] {process_id} | {field_name}: "
-            f"(EmbSim: {ratio_emb:.2f}) GT='{gt_str}' ~ PRED='{pred_str}'"
-        )
-    else:
-        print(
-            f"[MISMATCH]   {process_id} | {field_name}: "
-            f"(EmbSim: {ratio_emb:.2f}) GT='{gt_str}' != PRED='{pred_str}'"
-        )
+    def get_dataframe(self):
+        return pd.DataFrame(self.records)
 
-    return ratio_emb
+    def print_summary(self):
+        df = self.get_dataframe()
+        if df.empty:
+            print("Nenhum dado coletado.")
+            return
 
-def compare_values(gt_val: Any, pred_val: Any, field_name: str, process_id: str):
-    """
-    Roteador de Comparação:
-    - Compara valores perfeitamente.
-    - Se ambos forem strings e não idênticos, usa a função de similaridade.
-    - Caso contrário, marca como mismatch.
-    """
-    
-    # 1. Checa igualdade perfeita primeiro.
-    # Isto resolve None == None, True == True, 10 == 10, e strings 100% idênticas.
-    if gt_val == pred_val:
-        if gt_val is not None:
-             print(f"[OK]       {process_id} | {field_name}: '{gt_val}'")
-        # else:
-        #     print(f"[OK-N/A]   {process_id} | {field_name}: N/A")
-        return # Encontrou um acerto, não precisa de mais nada.
+        print("\n" + "="*60)
+        print("RELATÓRIO DE MÉTRICAS")
+        print("="*60)
 
-    # 2. Se não são idênticos, vamos checar se AMBOS são strings
-    if isinstance(gt_val, str) and isinstance(pred_val, str):
-        # Se sim, chama a lógica de similaridade
-        compare_strings_with_similarity(gt_val, pred_val, field_name, process_id)
-        return
+        # 1. Distribuição de Resultados
+        print("\n--- Distribuição de Tags de Erro/Acerto ---")
+        print(df['result'].value_counts())
 
-    # 3. Se chegamos aqui, eles são diferentes E não são (ambos strings).
-    # Exemplos:
-    # - str vs None
-    # - int vs str
-    # - int vs int (valores diferentes)
-    # - bool vs None
-    # Todos são Mismatches diretos.
-    gt_str = f"'{gt_val}'" if gt_val is not None else "N/A"
-    pred_str = f"'{pred_val}'" if pred_val is not None else "N/A"
-    print(f"[MISMATCH] {process_id} | {field_name}: GT={gt_str} != PRED={pred_str}")
+        # 2. Métricas de Entidades (Precision/Recall/F1)
+        ent_df = df[df['field'].str.contains("match_entidade")]
+        if not ent_df.empty:
+            tp = len(ent_df[ent_df['result'].isin(['ENTITY_MATCH_EXACT', 'ENTITY_MATCH_SEMANTIC'])])
+            fp = len(ent_df[ent_df['result'] == 'ENTITY_EXTRA'])
+            fn = len(ent_df[ent_df['result'] == 'ENTITY_MISSING'])
 
-# ----------------------------------------------------------------------------
-# Funções de Comparação de Listas (Sem alteração)
-# ----------------------------------------------------------------------------
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
-def compare_list_of_strings(gt_list: List[str], pred_list: List[str], prefix: str, process_id: str):
-    """
-    Compara duas listas de strings (ex: nomes de pessoas_envolvidas),
-    considerando similaridade semântica entre os itens.
-    - Ignora a ordem dos elementos.
-    - Usa a função compare_strings_with_similarity() para comparação item a item.
-    """
-    gt_list = gt_list or []
-    pred_list = pred_list or []
+            print("\n--- Performance de Reconhecimento de Entidades (NER) ---")
+            print(f"Total Matches (TP): {tp}")
+            print(f"Total Extra (FP)  : {fp}")
+            print(f"Total Missing (FN): {fn}")
+            print(f"Precision: {precision:.2%}")
+            print(f"Recall:    {recall:.2%}")
+            print(f"F1-Score:  {f1:.2%}")
 
-    # Se ambas estiverem vazias
-    if not gt_list and not pred_list:
-        print(f"[OK]       {process_id} | {prefix}: Ambas listas vazias")
-        return 1.0
-
-    # Guarda correspondências encontradas
-    matched_gt = set()
-    matched_pred = set()
-
-    # Compara cada elemento de GT com os de Pred
-    for gt_item in gt_list:
-        for pred_item in pred_list:
-            sim = compare_strings_with_similarity(gt_item, pred_item, prefix, process_id)
-            if sim >= SIMILARITY_THRESHOLD:
-                matched_gt.add(gt_item)
-                matched_pred.add(pred_item)
-                break  # já encontrou correspondência, passa pro próximo gt_item
-
-    # Identifica itens que não tiveram correspondência suficiente
-    missing_in_pred = [x for x in gt_list if x not in matched_gt]
-    extra_in_pred = [x for x in pred_list if x not in matched_pred]
-
-    # Resultado geral
-    if not missing_in_pred and not extra_in_pred:
-        print(f"[OK]       {process_id} | {prefix}: Listas coincidem (Total: {len(gt_list)})")
-        return 1.0
-    else:
-        print(f"[MISMATCH] {process_id} | {prefix}: Listas divergem")
-        if missing_in_pred:
-            print(f"    -> AUSENTE NA PREDIÇÃO (só GT): {missing_in_pred}")
-        if extra_in_pred:
-            print(f"    -> EXTRA NA PREDIÇÃO (só PRED): {extra_in_pred}")
-        return 0.0
-
-def compare_list_of_objects(gt_list: List[Dict], pred_list: List[Dict], 
-                          compare_func: Callable, prefix: str, process_id: str):
-    """
-    Compara duas listas de objetos (Pessoa, Vitima).
-    Usa o 'nome' como chave para parear os objetos.
-    """
-    gt_list = gt_list or []
-    pred_list = pred_list or []
-
-    gt_map = {item.get('nome') or f"item_{i}": item for i, item in enumerate(gt_list)}
-    pred_map = {item.get('nome') or f"item_{i}": item for i, item in enumerate(pred_list)}
-    
-    all_keys = set(gt_map.keys()) | set(pred_map.keys())
-    
-    if not all_keys:
-        print(f"[OK-N/A]   {process_id} | {prefix}: Ambas as listas estão vazias.")
-        return
-
-    compare_values(len(gt_list), len(pred_list), f"Contagem de {prefix}", process_id)
-
-    for key in sorted(all_keys):
-        gt_item = gt_map.get(key)
-        pred_item = pred_map.get(key)
-        item_prefix = f"{prefix}[nome={key}]"
+        # 3. Acurácia por Campo (excluindo marcadores de entidade)
+        # CORREÇÃO AQUI: Adicionado .copy() para evitar o Warning
+        field_df = df[~df['field'].str.contains("match_entidade")].copy()
         
-        if gt_item and pred_item:
-            compare_func(gt_item, pred_item, item_prefix, process_id)
-        elif gt_item:
-            print(f"[MISSING]  {process_id} | {item_prefix}: Encontrado no GT, mas AUSENTE na PREDIÇÃO")
+        # Definir o que é "Acerto"
+        field_df['is_correct'] = field_df['result'].isin(['MATCH_EXACT', 'MATCH_SEMANTIC'])
+        
+        print("\n--- Acurácia por Campo (Top 10 Piores) ---")
+        accuracy_per_field = field_df.groupby('field')['is_correct'].mean().sort_values()
+        print(accuracy_per_field.head(10))
+
+    def save_json_report(self, filepath="relatorio_completo.json"):
+        """
+        Gera um relatório JSON detalhado com estatísticas agregadas.
+        """
+        df = self.get_dataframe()
+        if df.empty:
+            print("Não há dados para gerar relatório JSON.")
+            return
+
+        report_data = {}
+
+        # =========================================================
+        # 1. Resumo Global (Contagem de Tags)
+        # =========================================================
+        # Converte int64 do pandas para int nativo do Python para serialização JSON
+        report_data["global_counts"] = {k: int(v) for k, v in df['result'].value_counts().to_dict().items()}
+
+        # =========================================================
+        # 2. Métricas de Entidades (NER)
+        # =========================================================
+        ent_df = df[df['field'].str.contains("match_entidade")]
+        ner_metrics = {
+            "precision": 0.0, "recall": 0.0, "f1_score": 0.0,
+            "tp": 0, "fp": 0, "fn": 0
+        }
+        
+        if not ent_df.empty:
+            tp = len(ent_df[ent_df['result'].isin(['ENTITY_MATCH_EXACT', 'ENTITY_MATCH_SEMANTIC'])])
+            fp = len(ent_df[ent_df['result'] == 'ENTITY_EXTRA'])
+            fn = len(ent_df[ent_df['result'] == 'ENTITY_MISSING'])
+
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+            ner_metrics = {
+                "precision": round(precision, 4),
+                "recall": round(recall, 4),
+                "f1_score": round(f1, 4),
+                "tp": int(tp), "fp": int(fp), "fn": int(fn)
+            }
+        
+        report_data["ner_metrics"] = ner_metrics
+
+        # =========================================================
+        # 3. Detalhamento por Campo (Ordenado por Acurácia)
+        # =========================================================
+        field_df = df[~df['field'].str.contains("match_entidade")].copy()
+        
+        # Define o que é acerto
+        field_df['is_correct'] = field_df['result'].isin(['MATCH_EXACT', 'MATCH_SEMANTIC'])
+
+        # Agrupa para calcular acurácia média
+        accuracy_series = field_df.groupby('field')['is_correct'].mean()
+        
+        # Agrupa para contar os tipos de erro/acerto por campo
+        # Retorna um DataFrame onde índice é o campo e colunas são os tipos de result
+        breakdown_df = field_df.groupby(['field', 'result']).size().unstack(fill_value=0)
+
+        fields_list = []
+        
+        # Ordena crescente (piores primeiro)
+        for field_name, acc in accuracy_series.sort_values(ascending=True).items():
+            
+            # Pega a linha correspondente no breakdown e converte para dicionário
+            # Ex: {'MATCH_EXACT': 10, 'FALSE_NEGATIVE': 2}
+            field_counts = breakdown_df.loc[field_name].to_dict()
+            
+            # Remove chaves com valor 0 para limpar o JSON
+            field_counts = {k: int(v) for k, v in field_counts.items() if v > 0}
+            
+            total_samples = sum(field_counts.values())
+
+            fields_list.append({
+                "field": field_name,
+                "accuracy": round(float(acc), 4),
+                "total_samples": total_samples,
+                "breakdown": field_counts
+            })
+
+        report_data["fields_performance"] = fields_list
+
+        # =========================================================
+        # Salvar Arquivo
+        # =========================================================
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(report_data, f, indent=4, ensure_ascii=False)
+            print(f"\nRelatório JSON salvo com sucesso em: {filepath}")
+        except Exception as e:
+            print(f"Erro ao salvar relatório JSON: {e}")
+
+# ==============================================================================
+# LÓGICA DE COMPARAÇÃO (VALORES)
+# ==============================================================================
+
+def treat_null_equivalents(val: Any) -> Any:
+    """
+    Normaliza valores. Se for string indicando ausência de dados, converte para None.
+    """
+    if val is None:
+        return None
+        
+    if isinstance(val, str):
+        # Remove espaços e coloca em minúsculas
+        clean_val = val.lower().strip()
+        
+        # Lista de variações que significam "Nulo"
+        null_synonyms = [
+            "não informado", "nao informado",
+            "não informada", "nao informada",
+            "ni", "n/i", "sem informação", "ignorado"
+        ]
+        
+        if clean_val in null_synonyms:
+            return None
+            
+        return val # Retorna a string original se não for sinônimo de nulo
+        
+    return val # Retorna o valor original (int, bool, etc)
+
+def eval_value(gt: Any, pred: Any, field_name: str, context: str, 
+               process_id: str, collector: MetricsCollector):
+    """
+    Decide a tag da taxonomia para um par de valores simples.
+    Agora suporta equivalência entre 'Não informado' e None.
+    """
+    
+    # 1. Normalização prévia (Trata "Não informado" como None)
+    gt_treated = treat_null_equivalents(gt)
+    pred_treated = treat_null_equivalents(pred)
+
+    # 2. Se ambos resultaram em None após o tratamento
+    # (Isso cobre: None vs None, "Não informado" vs None, "Não informado" vs "Não informada")
+    if gt_treated is None and pred_treated is None:
+        # Opcional: Se quiser registrar que houve um match de nulos/vazios:
+        # collector.log(process_id, context, field_name, gt, pred, "MATCH_NULL", 1.0)
+        return # Consideramos acerto silencioso ou ignoramos, conforme sua preferência
+
+    # 3. Erros de Nulo (Omissão ou Alucinação de Campo)
+    # Agora só entra aqui se um lado for REALMENTE valor e o outro for None (ou equivalente)
+    if gt_treated is not None and pred_treated is None:
+        collector.log(process_id, context, field_name, gt, pred, "FALSE_NEGATIVE", 0.0)
+        return
+    
+    if gt_treated is None and pred_treated is not None:
+        collector.log(process_id, context, field_name, gt, pred, "FALSE_POSITIVE", 0.0)
+        return
+
+    # 4. Match Exato (Prioridade máxima)
+    gt_norm = str(gt_treated).lower().strip() if isinstance(gt_treated, str) else gt_treated
+    pred_norm = str(pred_treated).lower().strip() if isinstance(pred_treated, str) else pred_treated
+
+    if gt_norm == pred_norm:
+        collector.log(process_id, context, field_name, gt, pred, "MATCH_EXACT", 1.0)
+        return
+
+    # 5. Strings diferentes -> Tentar Semântica
+    if isinstance(gt_treated, str) and isinstance(pred_treated, str):
+        emb_gt = sentence_embedding(gt_treated)
+        emb_pred = sentence_embedding(pred_treated)
+        sim = cosine_sim(emb_gt, emb_pred)
+
+        if sim >= SIMILARITY_THRESHOLD:
+            collector.log(process_id, context, field_name, gt, pred, "MATCH_SEMANTIC", sim)
         else:
-            print(f"[EXTRA]    {process_id} | {item_prefix}: Encontrado na PREDIÇÃO, mas AUSENTE no GT")
+            collector.log(process_id, context, field_name, gt, pred, "VALUE_MISMATCH", sim)
+        return
 
-# ----------------------------------------------------------------------------
-# Funções de Comparação de Schemas (Sem alteração)
-# ----------------------------------------------------------------------------
+    # 6. Tipos incompatíveis ou valores numéricos diferentes
+    collector.log(process_id, context, field_name, gt, pred, "VALUE_MISMATCH", 0.0)
 
-def compare_pessoa(gt: dict, pred: dict, prefix: str, process_id: str):
+
+# ==============================================================================
+# LÓGICA DE COMPARAÇÃO (LISTAS E OBJETOS)
+# ==============================================================================
+
+def eval_list_of_strings(gt_list: List[str], pred_list: List[str], 
+                         field_name: str, context: str, process_id: str, 
+                         collector: MetricsCollector):
     """
-    Compara explicitamente cada campo do schema 'Pessoa'.
+    Compara listas simples de strings (ex: alias, tipos de crime).
+    Usa abordagem "Best Match" guloso.
     """
-    print(f"\n--- Comparando {prefix} ---")
+    gt_list = gt_list or []
+    pred_list = pred_list or []
     
-    compare_values(gt.get('nome'), pred.get('nome'), f"{prefix}.nome", process_id)
-    compare_values(gt.get('cor'), pred.get('cor'), f"{prefix}.cor", process_id)
-    compare_values(gt.get('sexo'), pred.get('sexo'), f"{prefix}.sexo", process_id)
-    compare_values(gt.get('é_policial'), pred.get('é_policial'), f"{prefix}.é_policial", process_id)
-    compare_values(gt.get('corporacao_policial'), pred.get('corporacao_policial'), f"{prefix}.corporacao_policial", process_id)
-    compare_values(gt.get('policial_em_servico'), pred.get('policial_em_servico'), f"{prefix}.policial_em_servico", process_id)
-    compare_values(gt.get('profissao'), pred.get('profissao'), f"{prefix}.profissao", process_id)
-    compare_values(gt.get('escolaridade'), pred.get('escolaridade'), f"{prefix}.escolaridade", process_id)
-    compare_values(gt.get('nacionalidade'), pred.get('nacionalidade'), f"{prefix}.nacionalidade", process_id)
-    compare_values(gt.get('idade'), pred.get('idade'), f"{prefix}.idade", process_id)
-    compare_values(gt.get('antecedentes_criminais'), pred.get('antecedentes_criminais'), f"{prefix}.antecedentes_criminais", process_id)
+    # Copias para não alterar original
+    gt_temp = gt_list.copy()
+    pred_temp = pred_list.copy()
+    
+    # 1. Match Exato
+    to_remove_gt = []
+    to_remove_pred = []
+    
+    for g_item in gt_temp:
+        for p_item in pred_temp:
+            if g_item.lower().strip() == p_item.lower().strip():
+                collector.log(process_id, context, field_name, g_item, p_item, "MATCH_EXACT", 1.0)
+                to_remove_gt.append(g_item)
+                to_remove_pred.append(p_item)
+                break
+    
+    for x in to_remove_gt: gt_temp.remove(x)
+    for x in to_remove_pred: pred_temp.remove(x)
 
-def compare_vitima(gt: dict, pred: dict, prefix: str, process_id: str):
+    # 2. Match Semântico (para o que sobrou)
+    matched_gt_indices = set()
+    
+    for i, g_item in enumerate(gt_temp):
+        best_sim = -1
+        best_p_idx = -1
+        
+        g_emb = sentence_embedding(g_item)
+        
+        for j, p_item in enumerate(pred_temp):
+            p_emb = sentence_embedding(p_item)
+            sim = cosine_sim(g_emb, p_emb)
+            if sim > best_sim:
+                best_sim = sim
+                best_p_idx = j
+        
+        if best_sim >= SIMILARITY_THRESHOLD and best_p_idx != -1:
+            collector.log(process_id, context, field_name, g_item, pred_temp[best_p_idx], "MATCH_SEMANTIC", best_sim)
+            matched_gt_indices.add(i)
+            # Removemos da pred_temp (hacky way: set to None to avoid index shift)
+            pred_temp[best_p_idx] = None 
+        else:
+            collector.log(process_id, context, field_name, g_item, None, "VALUE_MISMATCH", best_sim if best_sim > -1 else 0)
+
+    # 3. Extras (O que sobrou em pred_temp e não é None)
+    for p_item in pred_temp:
+        if p_item is not None:
+            collector.log(process_id, context, field_name, None, p_item, "EXTRA_VALUE", 0.0)
+
+
+def eval_list_of_objects(gt_list: List[Dict], pred_list: List[Dict], 
+                         eval_func: Callable, list_name: str, process_id: str, 
+                         collector: MetricsCollector):
     """
-    Compara explicitamente cada campo do schema 'Vitima'.
+    Alinha objetos por nome (Exato -> Semântico) e depois compara campos internos.
+    Gera métricas de ENTITY_MATCH, ENTITY_MISSING, ENTITY_EXTRA.
     """
-    compare_pessoa(gt, pred, prefix, process_id)
-    
-    print(f"--- (Campos Específicos de Vítima para {prefix}) ---")
-    
-    compare_values(gt.get('armada'), pred.get('armada'), f"{prefix}.armada", process_id)
-    compare_values(gt.get('arma_da_vítima'), pred.get('arma_da_vítima'), f"{prefix}.arma_da_vítima", process_id)
-    compare_values(gt.get('faleceu'), pred.get('faleceu'), f"{prefix}.faleceu", process_id)
-    compare_values(gt.get('causa_juridica_da_morte'), pred.get('causa_juridica_da_morte'), f"{prefix}.causa_juridica_da_morte", process_id)
-    compare_values(gt.get('relacao_vitima_autor'), pred.get('relacao_vitima_autor'), f"{prefix}.relacao_vitima_autor", process_id)
+    gt_list = gt_list or []
+    pred_list = pred_list or []
 
-def compare_resumo_processo(gt: dict, pred: dict, process_id: str):
+    gt_matched_indices = set()
+    pred_matched_indices = set()
+    pairs_to_compare = [] # (gt_item, pred_item, tag_match)
+
+    # --- PASSO 1: Match Exato de Nome ---
+    for i, gt_item in enumerate(gt_list):
+        gt_name = str(gt_item.get('nome', '')).lower().strip()
+        if not gt_name: continue
+
+        for j, pred_item in enumerate(pred_list):
+            if j in pred_matched_indices: continue
+            
+            pred_name = str(pred_item.get('nome', '')).lower().strip()
+            
+            if gt_name == pred_name:
+                gt_matched_indices.add(i)
+                pred_matched_indices.add(j)
+                pairs_to_compare.append((gt_item, pred_item, "ENTITY_MATCH_EXACT"))
+                break
+    
+    # --- PASSO 2: Match Semântico de Nome (sobras) ---
+    if len(gt_matched_indices) < len(gt_list) and len(pred_matched_indices) < len(pred_list):
+        for i, gt_item in enumerate(gt_list):
+            if i in gt_matched_indices: continue
+            
+            gt_name = str(gt_item.get('nome', ''))
+            if not gt_name: continue
+            gt_emb = sentence_embedding(gt_name)
+            
+            best_score = -1.0
+            best_idx = -1
+            
+            for j, pred_item in enumerate(pred_list):
+                if j in pred_matched_indices: continue
+                
+                pred_name = str(pred_item.get('nome', ''))
+                pred_emb = sentence_embedding(pred_name)
+                sim = cosine_sim(gt_emb, pred_emb)
+                
+                if sim > best_score:
+                    best_score = sim
+                    best_idx = j
+            
+            if best_score >= SIMILARITY_THRESHOLD and best_idx != -1:
+                gt_matched_indices.add(i)
+                pred_matched_indices.add(best_idx)
+                pairs_to_compare.append((gt_item, pred_list[best_idx], "ENTITY_MATCH_SEMANTIC"))
+
+    # --- REGISTRO DAS MÉTRICAS DE ENTIDADE ---
+    
+    # 1. Pares Encontrados
+    for gt_obj, pred_obj, match_tag in pairs_to_compare:
+        # Loga que a entidade foi encontrada (para cálculo de Recall/Precision)
+        nome = gt_obj.get('nome')
+        collector.log(process_id, list_name, "match_entidade", nome, pred_obj.get('nome'), match_tag)
+        
+        # Agora compara os campos internos
+        # O contexto vira ex: "vitimas[João]"
+        sub_context = f"{list_name}[{nome}]"
+        eval_func(gt_obj, pred_obj, sub_context, process_id, collector)
+
+    # 2. Missing (Ficaram no GT)
+    for i, gt_item in enumerate(gt_list):
+        if i not in gt_matched_indices:
+            nome = gt_item.get('nome', f"item_{i}")
+            collector.log(process_id, list_name, "match_entidade", nome, None, "ENTITY_MISSING", 0.0)
+
+    # 3. Extra (Ficaram na Pred)
+    for j, pred_item in enumerate(pred_list):
+        if j not in pred_matched_indices:
+            nome = pred_item.get('nome', f"item_{j}")
+            collector.log(process_id, list_name, "match_entidade", None, nome, "ENTITY_EXTRA", 0.0)
+
+# ==============================================================================
+# SCHEMAS DE AVALIAÇÃO
+# ==============================================================================
+
+# ------------------------------------------------------------------
+# NOVO AUXILIAR PARA LÓGICA BOOLEANA
+# ------------------------------------------------------------------
+def is_boolean_true(val: Any) -> bool:
     """
-    Compara os campos do schema 'ResumoProcesso'.
+    Retorna True apenas se o valor indicar inequivocamente 'Verdadeiro'.
+    Trata strings como 'false', 'não', '0' como False.
     """
-    print(f"\n{'*' * 10} Comparando ResumoProcesso {'*' * 10}")
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val != 0
     
-    gt_resumo = gt.get('resumo_processo', {}) or {}
-    pred_resumo = pred.get('resumo_processo', {}) or {}
-    
-    compare_values(
-        gt_resumo.get('classificacao_crime'), 
-        pred_resumo.get('classificacao_crime'), 
-        "resumo_processo.classificacao_crime", 
-        process_id
-    )
-    
-    gt_pessoas = gt_resumo.get('pessoas_envolvidas', {}) or {}
-    pred_pessoas = pred_resumo.get('pessoas_envolvidas', {}) or {}
-    
-    compare_list_of_strings(
-        gt_pessoas.get('vitimas'), 
-        pred_pessoas.get('vitimas'), 
-        "resumo_processo.pessoas_envolvidas.vitimas", 
-        process_id
-    )
-    compare_list_of_strings(
-        gt_pessoas.get('suspeitos_investigados'), 
-        pred_pessoas.get('suspeitos_investigados'), 
-        "resumo_processo.pessoas_envolvidas.suspeitos_investigados", 
-        process_id
-    )
-    compare_list_of_strings(
-        gt_pessoas.get('testemunhas'), 
-        pred_pessoas.get('testemunhas'), 
-        "resumo_processo.pessoas_envolvidas.testemunhas", 
-        process_id
-    )
+    # Tratamento de Strings
+    s = str(val).lower().strip()
+    if s in ['false', 'falso', 'não', 'nao', 'n', '0', 'no']:
+        return False
+    return True
 
-def compare_inquerito(gt: dict, pred: dict, process_id: str):
+# ------------------------------------------------------------------
+# FUNÇÃO DE AVALIAÇÃO DE PESSOA (COM LÓGICA CONDICIONAL)
+# ------------------------------------------------------------------
+def eval_pessoa_fields(gt: dict, pred: dict, context: str, pid: str, col: MetricsCollector):
     """
-    Compara os campos do schema 'Inquerito'.
+    Avalia campos de pessoa com lógica de dependência:
+    Se 'é_policial' for Falso em ambos, ignora corporação e status de serviço.
     """
-    print(f"\n{'*' * 10} Comparando Inquerito {'*' * 10}")
     
-    gt_inquerito = gt.get('inquerito', {}) or {}
-    pred_inquerito = pred.get('inquerito', {}) or {}
+    # 1. Campos Gerais (Sempre avaliados)
+    common_fields = ['cor', 'sexo', 'profissao', 'escolaridade', 
+                     'nacionalidade', 'idade', 'antecedentes_criminais']
     
-    # --- Campos de Classificação ---
-    compare_values(gt_inquerito.get('resultado'), pred_inquerito.get('resultado'), "inquerito.resultado", process_id)
-    compare_values(gt_inquerito.get('é_feminicidio'), pred_inquerito.get('é_feminicidio'), "inquerito.é_feminicidio", process_id)
-    
-    # --- Campos de Contexto ---
-    compare_values(gt_inquerito.get('data_ocorrencia'), pred_inquerito.get('data_ocorrencia'), "inquerito.data_ocorrencia", process_id)
-    compare_values(gt_inquerito.get('hora_ocorrencia'), pred_inquerito.get('hora_ocorrencia'), "inquerito.hora_ocorrencia", process_id)
-    compare_values(gt_inquerito.get('data_registro'), pred_inquerito.get('data_registro'), "inquerito.data_registro", process_id)
-    compare_values(gt_inquerito.get('delegacia_registro'), pred_inquerito.get('delegacia_registro'), "inquerito.delegacia_registro", process_id)
-    
-    # --- Campos de Localização ---
-    compare_values(gt_inquerito.get('tipo_de_local'), pred_inquerito.get('tipo_de_local'), "inquerito.tipo_de_local", process_id)
-    compare_values(gt_inquerito.get('local_detalhado'), pred_inquerito.get('local_detalhado'), "inquerito.local_detalhado", process_id)
-    compare_values(gt_inquerito.get('latitude'), pred_inquerito.get('latitude'), "inquerito.latitude", process_id)
-    compare_values(gt_inquerito.get('longitude'), pred_inquerito.get('longitude'), "inquerito.longitude", process_id)
-    compare_values(gt_inquerito.get('municipio'), pred_inquerito.get('municipio'), "inquerito.municipio", process_id)
-    
-    # --- Campos de Evidências ---
-    compare_values(gt_inquerito.get('arma_utilizada'), pred_inquerito.get('arma_utilizada'), "inquerito.arma_utilizada", process_id)
-    compare_values(gt_inquerito.get('bem_roubado'), pred_inquerito.get('bem_roubado'), "inquerito.bem_roubado", process_id)
-    
-    # --- Campos do Andamento do Inquérito ---
-    compare_values(gt_inquerito.get('natureza_da_autoria'), pred_inquerito.get('natureza_da_autoria'), "inquerito.natureza_da_autoria", process_id)
-    compare_values(gt_inquerito.get('pericia_realizada'), pred_inquerito.get('pericia_realizada'), "inquerito.pericia_realizada", process_id)
-    compare_values(gt_inquerito.get('prisao_em_flagrante'), pred_inquerito.get('prisao_em_flagrante'), "inquerito.prisao_em_flagrante", process_id)
-    compare_values(gt_inquerito.get('razao_arquivamento'), pred_inquerito.get('razao_arquivamento'), "inquerito.razao_arquivamento", process_id)
+    for f in common_fields:
+        eval_value(gt.get(f), pred.get(f), f, context, pid, col)
 
-# ----------------------------------------------------------------------------
-# Função Principal de Orquestração
-# ----------------------------------------------------------------------------
+    # 2. Avaliação do Status 'é_policial'
+    # Avaliamos explicitamente primeiro para gerar a métrica deste campo
+    gt_is_police_raw = gt.get('é_policial')
+    pred_is_police_raw = pred.get('é_policial')
+    
+    eval_value(gt_is_police_raw, pred_is_police_raw, 'é_policial', context, pid, col)
 
-def compare_process_data(process_id: str, gt_proc: dict, pred_proc: dict):
-    """
-    Orquestra a comparação para um único processo.
-    (Esta função foi corrigida para acessar as listas corretamente)
-    """
-    print(f"\n{'=' * 20} COMPARANDO PROCESSO: {process_id} {'=' * 20}")
+    # 3. Campos Condicionais (Só avalia se necessário)
+    police_fields = ['corporacao_policial', 'policial_em_servico']
     
-    # 1. Comparar 'resumo_processo' (Schema ResumoProcesso)
-    compare_resumo_processo(gt_proc, pred_proc, process_id)
-    
-    # 2. Comparar 'inquerito' (Schema Inquerito)
-    compare_inquerito(gt_proc, pred_proc, process_id)
-    
-    # 3. Comparar 'vítimas' (Schema Vitimas -> List[Vitima])
-    print(f"\n{'*' * 10} Comparando Lista de Vítimas {'*' * 10}")
+    # Normaliza para booleano python puro para decidir a lógica
+    gt_bool = is_boolean_true(gt_is_police_raw)
+    pred_bool = is_boolean_true(pred_is_police_raw)
 
-    gt_vitimas_list = gt_proc.get('vítimas', {}) or {}
-    pred_vitimas_obj = pred_proc.get('vítimas', {}) or {}
-    
-    pred_vitimas_list = pred_vitimas_obj.get('vitimas', [])
-    
-    compare_list_of_objects(
-        gt_vitimas_list, 
-        pred_vitimas_list, 
-        compare_vitima, 
-        "vítimas.vitimas", 
-        process_id
-    )
-    
-    # 4. Comparar 'suspeitos' (Schema Suspeitos -> List[Pessoa])
-    print(f"\n{'*' * 10} Comparando Lista de Suspeitos {'*' * 10}")
+    # LÓGICA DE NEGÓCIO:
+    # Se GT diz que NÃO é policial E Pred diz que NÃO é policial -> Pula validação dos detalhes
+    # Isso evita comparar "não é policial" (GT) com None (Pred), o que gerava erro.
+    if not gt_bool and not pred_bool:
+        # Opcional: Se você quiser registrar explicitamente que foi ignorado/acertado por lógica:
+        # for f in police_fields:
+        #     col.log(pid, context, f, "N/A", "N/A", "MATCH_LOGIC", 1.0)
+        pass 
+    else:
+        # Se pelo menos um diz que é policial, ou há discordância, avaliamos os detalhes
+        # para pegar potenciais erros de conteúdo ou alucinações.
+        for f in police_fields:
+            eval_value(gt.get(f), pred.get(f), f, context, pid, col)
 
-    gt_suspeitos_list = gt_proc.get('suspeitos', {}) or {}
-    pred_suspeitos_obj = pred_proc.get('suspeitos', {}) or {}
-    
-    pred_suspeitos_list = pred_suspeitos_obj.get('Suspeitos', [])
-    
-    compare_list_of_objects(
-        gt_suspeitos_list, 
-        pred_suspeitos_list, 
-        compare_pessoa, 
-        "suspeitos.Suspeitos", 
-        process_id
-    )
+def eval_vitima(gt: dict, pred: dict, context: str, pid: str, col: MetricsCollector):
+    # Campos base de Pessoa
+    eval_pessoa_fields(gt, pred, context, pid, col)
+    # Campos específicos de Vítima
+    v_fields = ['armada', 'arma_da_vítima', 'faleceu', 
+                'causa_juridica_da_morte', 'relacao_vitima_autor']
+    for f in v_fields:
+        eval_value(gt.get(f), pred.get(f), f, context, pid, col)
 
-    # 5. Comparar 'testemunhas' (Schema Testemunhas -> List[Pessoa])
-    print(f"\n{'*' * 10} Comparando Lista de Testemunhas {'*' * 10}")
+def eval_resumo(gt: dict, pred: dict, pid: str, col: MetricsCollector):
+    gt_r = gt.get('resumo_processo', {}) or {}
+    pred_r = pred.get('resumo_processo', {}) or {}
     
-    gt_testemunhas_list = gt_proc.get('testemunhas', {}) or {}
-    pred_testemunhas_obj = pred_proc.get('testemunhas', {}) or {}
-    
-    pred_testemunhas_list = pred_testemunhas_obj.get('testemunhas', [])
-    
-    compare_list_of_objects(
-        gt_testemunhas_list, 
-        pred_testemunhas_list, 
-        compare_pessoa, 
-        "testemunhas.testemunhas", 
-        process_id
-    )
+    eval_value(gt_r.get('classificacao_crime'), pred_r.get('classificacao_crime'), 
+               'classificacao_crime', 'resumo', pid, col)
 
-# ----------------------------------------------------------------------------
-# Execução (Main)
-# ----------------------------------------------------------------------------
+def eval_inquerito(gt: dict, pred: dict, pid: str, col: MetricsCollector):
+    gt_i = gt.get('inquerito', {}) or {}
+    pred_i = pred.get('inquerito', {}) or {}
+    
+    fields = ['resultado', 'é_feminicidio', 'data_ocorrencia', 'hora_ocorrencia',
+              'data_registro', 'delegacia_registro', 'tipo_de_local', 
+              'local_detalhado', 'latitude', 'longitude', 'municipio',
+              'arma_utilizada', 'bem_roubado', 'natureza_da_autoria',
+              'pericia_realizada', 'prisao_em_flagrante', 'razao_arquivamento']
+              
+    for f in fields:
+        eval_value(gt_i.get(f), pred_i.get(f), f, 'inquerito', pid, col)
 
-def load_json_file(filepath: str) -> Dict:
-    """Carrega um arquivo JSON com tratamento de erro."""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Erro: Arquivo não encontrado: {filepath}")
-        return None
-    except json.JSONDecodeError:
-        print(f"Erro: Falha ao decodificar JSON em: {filepath}")
-        return None
-    except Exception as e:
-        print(f"Erro inesperado ao ler {filepath}: {e}")
-        return None
+# ==============================================================================
+# MAIN
+# ==============================================================================
 
 def main():
-    # --- DEFINA OS CAMINHOS DOS ARQUIVOS AQUI ---
+    # SETUP
     GT_FILEPATH = "groundtruth_cleaned.json"
     PRED_FILEPATH = "output/run_2025-11-05_15-36-36/st_5_sabiazinho-3_results.json"
-    # ----------------------------------------------
     
-    print(f"Carregando Ground Truth de: {GT_FILEPATH}")
-    gt_data = load_json_file(GT_FILEPATH)
-    
-    print(f"Carregando Predição de:    {PRED_FILEPATH}")
-    pred_data = load_json_file(PRED_FILEPATH)
-    
-    if not gt_data or not pred_data:
-        print("Erro ao carregar arquivos. Abortando.")
+    try:
+        with open(GT_FILEPATH, 'r', encoding='utf-8') as f: gt_data = json.load(f)
+        with open(PRED_FILEPATH, 'r', encoding='utf-8') as f: pred_data = json.load(f)
+    except Exception as e:
+        print(f"Erro ao carregar arquivos: {e}")
         return
-        
-    print("\nIniciando comparação...")
-    
-    total_processos = 0
-    processos_nao_encontrados_pred = 0
-    
-    for process_id, gt_processo in gt_data.items():
-        total_processos += 1
-        
-        if process_id not in pred_data:
-            print(f"\n[ERROR] Processo {process_id} encontrado no GT, mas AUSENTE na PREDIÇÃO.")
-            processos_nao_encontrados_pred += 1
-            continue
-            
-        pred_processo_nested = pred_data[process_id]
-        
-        if 'result' not in pred_processo_nested:
-            print(f"\n[ERROR] Processo {process_id} na PREDIÇÃO não contém a chave 'result'. Pulando.")
-            continue
-            
-        pred_processo = pred_processo_nested['result']
-        
-        compare_process_data(process_id, gt_processo, pred_processo)
-        
-    print(f"\n{'=' * 50}")
-    print("Comparação Concluída.")
-    print(f"Total de processos no Ground Truth: {total_processos}")
-    print(f"Processos não encontrados na Predição: {processos_nao_encontrados_pred}")
-    
-    extra_processos = set(pred_data.keys()) - set(gt_data.keys())
-    if extra_processos:
-        print(f"Processos EXTRA (apenas na Predição): {len(extra_processos)}")
 
+    collector = MetricsCollector()
+    
+    # EXECUÇÃO
+    for pid, gt_proc in gt_data.items():
+        if pid not in pred_data:
+            print(f"Processo {pid} ignorado (não está na predição).")
+            continue
+            
+        pred_proc = pred_data[pid].get('result', {})
+        
+        print(f"Avaliando Processo {pid}...")
+
+        # 1. Estruturas Estáticas
+        eval_resumo(gt_proc, pred_proc, pid, collector)
+        eval_inquerito(gt_proc, pred_proc, pid, collector)
+        
+        # 2. Listas Dinâmicas (Entidades)
+        # Vítimas
+        gt_vits = gt_proc.get('vítimas', [])
+        pred_vits = pred_proc.get('vítimas', {}).get('vitimas', [])
+        eval_list_of_objects(gt_vits, pred_vits, eval_vitima, "vítimas", pid, collector)
+        
+        # Suspeitos
+        gt_susp = gt_proc.get('suspeitos', [])
+        pred_susp = pred_proc.get('suspeitos', {}).get('Suspeitos', [])
+        eval_list_of_objects(gt_susp, pred_susp, eval_pessoa_fields, "suspeitos", pid, collector)
+        
+        # Testemunhas
+        gt_test = gt_proc.get('testemunhas', [])
+        pred_test = pred_proc.get('testemunhas', {}).get('testemunhas', [])
+        eval_list_of_objects(gt_test, pred_test, eval_pessoa_fields, "testemunhas", pid, collector)
+
+    # RELATÓRIOS FINAIS
+    collector.print_summary()
+    
+    # --- LÓGICA DE CRIAÇÃO DO DIRETÓRIO DE SAÍDA ---
+    
+    # 1. Pega apenas o nome do arquivo (st_5_sabiazinho-3_results.json)
+    base_filename = os.path.basename(PRED_FILEPATH)
+    
+    # 2. Remove a extensão .json e o sufixo _results
+    # O replace garante que limpamos o sufixo conforme pedido
+    output_dir_name = base_filename.replace('_results.json', '').replace('.json', '')
+    
+    # 3. Cria o diretório se não existir
+    if not os.path.exists(output_dir_name):
+        os.makedirs(output_dir_name)
+        print(f"\nDiretório criado: {output_dir_name}")
+    
+    # 4. Define os caminhos finais dentro desse diretório
+    csv_path = os.path.join(output_dir_name, "metricas_brutas.csv")
+    json_path = os.path.join(output_dir_name, "relatorio_final_analitico.json")
+
+    # Salvar CSV (dados brutos)
+    df = collector.get_dataframe()
+    df.to_csv(csv_path, index=False)
+    print(f"CSV salvo em: '{csv_path}'")
+    
+    # Salvar JSON (Relatório Analítico)
+    collector.save_json_report(json_path)
 
 if __name__ == "__main__":
     main()
