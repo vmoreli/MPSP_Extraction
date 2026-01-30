@@ -1,0 +1,146 @@
+{
+  "document": "130544000080820121",
+  "resumo_processo": {
+    "pessoas_envolvidas": {
+      "vitimas": [
+        "Fabiano Antero Batista"
+      ],
+      "suspeitos_investigados": [],
+      "testemunhas": [
+        "Messias dos Santos Freitas",
+        "Adriana Antero Batista",
+        "Fabiana Antero Batista",
+        "Edivânia dos Santos",
+        "Alisson Silva Fabiano"
+      ]
+    },
+    "classificacao_crime": "Homicídio"
+  },
+  "inquerito": {
+    "resultado": "Consumado",
+    "é_feminicidio": false,
+    "data_ocorrencia": "21 de fevereiro de 2012",
+    "hora_ocorrencia": "21h50",
+    "data_registro": null,
+    "delegacia_registro": null,
+    "tipo_de_local": null,
+    "local_detalhado": null,
+    "latitude": null,
+    "longitude": null,
+    "municipio": null,
+    "arma_utilizada": null,
+    "bem_roubado": null,
+    "natureza_da_autoria": null,
+    "pericia_realizada": true,
+    "prisao_em_flagrante": false,
+    "razao_arquivamento": " Diante do exposto, não havendo indícios de autoria delitiva e não vislumbrando outras diligências que possam ser realizadas, promovo o arquivamento do presente inquérito policial"
+  },
+  "vitimas": {
+    "vitimas": [
+      {
+        "nome": "Fabiano Antero Batista",
+        "cor": "não informado",
+        "sexo": "masculino",
+        "é_policial": false,
+        "corporacao_policial": null,
+        "policial_em_servico": null,
+        "profissao": "não informado",
+        "escolaridade": "não informado",
+        "nacionalidade": "não informado",
+        "idade": "não informado",
+        "antecedentes_criminais": "não informado",
+        "armada": false,
+        "arma_da_vítima": null,
+        "faleceu": true,
+        "causa_juridica_da_morte": "homicídio por arma de fogo",
+        "relacao_vitima_autor": "desconhecida"
+      }
+    ]
+  },
+  "suspeitos": {
+    "Suspeitos": [
+      {
+        "nome": "",
+        "cor": "não informado",
+        "sexo": "desconhecido",
+        "é_policial": false,
+        "corporacao_policial": null,
+        "policial_em_servico": null,
+        "profissao": "",
+        "escolaridade": "",
+        "nacionalidade": "",
+        "idade": "",
+        "antecedentes_criminais": ""
+      }
+    ]
+  },
+  "testemunhas": {
+    "testemunhas": [
+      {
+        "nome": "Messias dos Santos Freitas",
+        "cor": "não informado",
+        "sexo": "masculino",
+        "é_policial": false,
+        "corporacao_policial": null,
+        "policial_em_servico": null,
+        "profissao": "não informado",
+        "escolaridade": "não informado",
+        "nacionalidade": "não informado",
+        "idade": "não informado",
+        "antecedentes_criminais": "não informado"
+      },
+      {
+        "nome": "Adriana Antero Batista",
+        "cor": "não informado",
+        "sexo": "feminino",
+        "é_policial": false,
+        "corporacao_policial": null,
+        "policial_em_servico": null,
+        "profissao": "não informado",
+        "escolaridade": "não informado",
+        "nacionalidade": "não informado",
+        "idade": "não informado",
+        "antecedentes_criminais": "não informado"
+      },
+      {
+        "nome": "Fabiana Antero Batista ",
+        "cor": "não informado ",
+        "sexo": "feminino ",
+        "é_policial": false,
+        "corporacao_policial": null,
+        "policial_em_servico": null,
+        "profissao": " não informado ",
+        "escolaridade": " não informado ",
+        "nacionalidade": " não informado ",
+        "idade": " não informado ",
+        "antecedentes_criminais": " não informado"
+      },
+      {
+        "nome": " Edivânia dos Santos ",
+        "cor": " não informado ",
+        "sexo": " feminino ",
+        "é_policial": false,
+        "corporacao_policial": null,
+        "policial_em_servico": null,
+        "profissao": " não informado ",
+        "escolaridade": " não informado ",
+        "nacionalidade": " não informado ",
+        "idade": " não informado ",
+        "antecedentes_criminais": " não informado"
+      },
+      {
+        "nome": " Alisson Silva Fabiano ",
+        "cor": " não infomrado ",
+        "sexo": " masculino ",
+        "é_policial": false,
+        "corporacao_policial": null,
+        "policial_em_servico": null,
+        "profissao": " não infomrado ",
+        "escolaridade": " não infomrado ",
+        "nacionalidade": " não infomrado ",
+        "idade": " não infomrado ",
+        "antecedentes_criminais": " não infomrado"
+      }
+    ]
+  }
+}
