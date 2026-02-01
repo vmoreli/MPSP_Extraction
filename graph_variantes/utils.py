@@ -3,7 +3,7 @@
 Utils para o experimento:
 - client Maritaca
 - call_parse com métricas + retries
-- IO (save json)
+- controle de tokens por documento
 """
 
 import os
@@ -19,24 +19,39 @@ from openai import OpenAI
 
 from extraction_pipeline.schemas.extract_data_schemas import ClassificacaoCrime
 
+# =============================================================================
+# ENV
+# =============================================================================
 load_dotenv()
 
 DEFAULT_BASE_URL = os.getenv("MARITACA_BASE_URL", "https://chat.maritaca.ai/api")
-DEFAULT_MODEL = os.getenv("MARITACA_MODEL", "sabia-2")
+DEFAULT_MODEL = os.getenv("MARITACA_MODEL", "sabia-3")
 
-# Métricas globais (por execução)
-STATS: Dict[str, Dict[str, Any]] = {}  # prompt_name -> {calls, seconds, prompt_tokens, completion_tokens, total_tokens}
+# =============================================================================
+# TOKENS POR DOCUMENTO
+# =============================================================================
+TOKENS_BY_DOC: Dict[str, Dict[str, int]] = {}
+
+# =============================================================================
+# MÉTRICAS GLOBAIS (por prompt)
+# =============================================================================
+STATS: Dict[str, Dict[str, Any]] = {}
+# prompt_name -> {calls, seconds, prompt_tokens, completion_tokens, total_tokens, retries}
 
 
+# =============================================================================
+# CLIENTE
+# =============================================================================
 def get_client() -> OpenAI:
     api_key = os.getenv("MARITACA_API_KEY")
     if not api_key:
-        raise EnvironmentError("MARITACA_API_KEY não encontrada no ambiente/.env.")
+        raise EnvironmentError("MARITACA_API_KEY não encontrada no ambiente.")
     return OpenAI(api_key=api_key, base_url=DEFAULT_BASE_URL)
 
 
-
-
+# =============================================================================
+# MÉTRICAS
+# =============================================================================
 def _init_stats(prompt_name: str) -> None:
     if prompt_name not in STATS:
         STATS[prompt_name] = {
@@ -58,7 +73,6 @@ def _accumulate(prompt_name: str, dt: float, usage: Optional[Any], retried: bool
         s["retries"] += 1
 
     if usage:
-        # usage pode ser objeto do SDK
         pt = int(getattr(usage, "prompt_tokens", 0) or 0)
         ct = int(getattr(usage, "completion_tokens", 0) or 0)
         tt = int(getattr(usage, "total_tokens", 0) or (pt + ct))
@@ -71,63 +85,38 @@ def total_tokens_llm() -> int:
     return int(sum(v.get("total_tokens", 0) for v in STATS.values()))
 
 
-def save_model_json(path: Path, model: BaseModel) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(model.model_dump(mode="json"), f, ensure_ascii=False, indent=2)
-
-
-def save_payload_json(path: Path, payload: Dict[str, Any]) -> None:
-    """
-    Salva payload de grafo (com vários BaseModel).
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    def _dump(x: Any):
-        if isinstance(x, BaseModel):
-            return x.model_dump(mode="json")
-        return None if x is None else x
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({k: _dump(v) for k, v in payload.items()}, f, ensure_ascii=False, indent=2)
-
-
+# =============================================================================
+# SYSTEM RULES
+# =============================================================================
 def _system_rules_base() -> str:
-    # Isso NÃO altera seus prompts; só garante formato e diminui “texto fora do JSON”.
     return (
-        "Responda APENAS em JSON válido, sem markdown, sem explicações.\n"
+        "Responda APENAS em JSON válido.\n"
+        "Não use markdown, não explique.\n"
         "Siga estritamente o schema fornecido.\n"
     )
 
 
 def _system_rules_retry() -> str:
-    # Reforço para os erros mais comuns:
-    # 1) enum de classificacao_crime
-    # 2) regra armada -> arma_da_vitima
-    enum_vals = [e.value for e in ClassificacaoCrime]
     return (
-    "ATENÇÃO: sua resposta anterior foi REJEITADA pelo schema.\n\n"
-    "ERRO CRÍTICO A EVITAR:\n"
-    "- Se uma vítima tiver 'armada': true, o campo 'arma_da_vitima' "
-    "DEVE ser preenchido com uma string NÃO vazia.\n\n"
-    "Se a arma não estiver explicitamente indicada no texto, "
-    "use EXATAMENTE o valor: \"Desconhecida\".\n\n"
-    "NUNCA retorne:\n"
-    "- armada=true com arma_da_vitima nula, vazia ou ausente.\n\n"
-    "Responda APENAS em JSON válido conforme o schema."
-)
+        "ATENÇÃO: sua resposta anterior foi REJEITADA pelo schema.\n\n"
+        "REGRA CRÍTICA:\n"
+        "- Se 'armada' for true, 'arma_da_vitima' DEVE ser preenchida.\n"
+        "- Se a arma não estiver explícita no texto, use EXATAMENTE: \"Desconhecida\".\n\n"
+        "NUNCA retorne armada=true com arma_da_vitima vazia ou ausente.\n\n"
+        "Responda APENAS em JSON válido conforme o schema."
+    )
 
 
+# =============================================================================
+# CHAMADA ÚNICA (SEM RETRY)
+# =============================================================================
 def call_parse_once(
     client: OpenAI,
     prompt_text: str,
     schema: Type[BaseModel],
     model_name: str = DEFAULT_MODEL,
     extra_system: Optional[str] = None,
-) -> BaseModel:
-    """
-    Uma chamada parse() com schema.
-    """
+):
     system_msg = _system_rules_base() + (extra_system or "")
 
     t0 = time.perf_counter()
@@ -147,27 +136,44 @@ def call_parse_once(
     return parsed, dt, usage
 
 
+# =============================================================================
+# CHAMADA COM RETRIES + TOKENS POR DOCUMENTO
+# =============================================================================
 def call_parse_with_retries(
     prompt_name: str,
     prompt_text: str,
     schema: Type[BaseModel],
+    *,
+    doc_id: str,
     model_name: str = DEFAULT_MODEL,
     max_retries: int = 2,
 ) -> BaseModel:
     """
-    Faz parse() e, se falhar validação, tenta novamente (sem alterar prompt file).
+    Executa parse() com retries.
+    Tokens só são acumulados quando a resposta é VÁLIDA.
     """
     client = get_client()
 
-    # tentativa 1 (sem reforço extra)
+    # tentativa 1
     try:
-        parsed, dt, usage = call_parse_once(client, prompt_text, schema, model_name=model_name)
+        parsed, dt, usage = call_parse_once(
+            client, prompt_text, schema, model_name=model_name
+        )
         _accumulate(prompt_name, dt, usage, retried=False)
+
+        if usage:
+            TOKENS_BY_DOC.setdefault(doc_id, {})
+            TOKENS_BY_DOC[doc_id][prompt_name] = (
+                TOKENS_BY_DOC[doc_id].get(prompt_name, 0)
+                + int(getattr(usage, "total_tokens", 0) or 0)
+            )
+
         return parsed
+
     except Exception as e1:
-        # retries com reforço
         last_exc = e1
-        for i in range(max_retries):
+
+        for _ in range(max_retries):
             try:
                 parsed, dt, usage = call_parse_once(
                     client,
@@ -177,8 +183,50 @@ def call_parse_with_retries(
                     extra_system=_system_rules_retry(),
                 )
                 _accumulate(prompt_name, dt, usage, retried=True)
+
+                if usage:
+                    TOKENS_BY_DOC.setdefault(doc_id, {})
+                    TOKENS_BY_DOC[doc_id][prompt_name] = (
+                        TOKENS_BY_DOC[doc_id].get(prompt_name, 0)
+                        + int(getattr(usage, "total_tokens", 0) or 0)
+                    )
+
                 return parsed
+
             except Exception as e2:
                 last_exc = e2
 
         raise last_exc
+
+# =============================================================================
+# IO HELPERS
+# =============================================================================
+def save_model_json(path: Path, model: BaseModel) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            model.model_dump(mode="json"),
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+
+def save_payload_json(path: Path, payload: Dict[str, Any]) -> None:
+    """
+    Salva payload de grafo (vários BaseModel juntos).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _dump(x: Any):
+        if isinstance(x, BaseModel):
+            return x.model_dump(mode="json")
+        return None if x is None else x
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            {k: _dump(v) for k, v in payload.items()},
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
