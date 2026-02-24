@@ -5,7 +5,7 @@ Utils para o experimento:
 - call_parse com métricas + retries
 - controle de tokens por documento
 """
-
+from pydantic import ValidationError
 import os
 import json
 import time
@@ -16,8 +16,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from openai import OpenAI
-
-from extraction_pipeline.schemas.extract_data_schemas import ClassificacaoCrime
 
 # =============================================================================
 # ENV
@@ -84,6 +82,23 @@ def _accumulate(prompt_name: str, dt: float, usage: Optional[Any], retried: bool
 def total_tokens_llm() -> int:
     return int(sum(v.get("total_tokens", 0) for v in STATS.values()))
 
+def _normalize_resumo_pessoas(data):
+    try:
+        pessoas = data.get("resumo_processo", {}).get("pessoas_envolvidas", {})
+
+        for key in ["vitimas", "suspeitos_investigados", "testemunhas"]:
+            if key in pessoas and isinstance(pessoas[key], list):
+                nova_lista = []
+                for item in pessoas[key]:
+                    if isinstance(item, dict) and "nome" in item:
+                        nova_lista.append(item["nome"])
+                    else:
+                        nova_lista.append(item)
+                pessoas[key] = nova_lista
+    except Exception:
+        pass
+
+    return data
 
 # =============================================================================
 # SYSTEM RULES
@@ -93,16 +108,32 @@ def _system_rules_base() -> str:
         "Responda APENAS em JSON válido.\n"
         "Não use markdown, não explique.\n"
         "Siga estritamente o schema fornecido.\n"
+        "\n"
+        "REGRAS CRÍTICAS (para não quebrar validações):\n"
+        "- Se 'é_policial' for true, 'corporacao_policial' DEVE estar preenchido.\n"
+        "- Se a corporação NÃO estiver explicitamente no texto, marque 'é_policial' como false.\n"
+        "- É PROIBIDO retornar é_policial=true com corporacao_policial vazia.\n"
+        "\n"
+        "- Só marque 'armada' como true se a arma estiver EXPLICITAMENTE descrita no texto.\n"
+        "- Se a arma NÃO estiver explícita, marque 'armada' como false e 'arma_da_vítima' como null.\n"
+        "- É PROIBIDO retornar armada=true com arma_da_vítima vazia.\n"
     )
-
 
 def _system_rules_retry() -> str:
     return (
         "ATENÇÃO: sua resposta anterior foi REJEITADA pelo schema.\n\n"
-        "REGRA CRÍTICA:\n"
-        "- Se 'armada' for true, 'arma_da_vitima' DEVE ser preenchida.\n"
-        "- Se a arma não estiver explícita no texto, use EXATAMENTE: \"Desconhecida\".\n\n"
-        "NUNCA retorne armada=true com arma_da_vitima vazia ou ausente.\n\n"
+        "Corrija ESTRITAMENTE conforme estas regras:\n"
+        "- Responda APENAS JSON válido (sem markdown).\n"
+        "- NÃO invente informação.\n"
+        "\n"
+        "Policial:\n"
+        "- Se 'é_policial' for true, 'corporacao_policial' deve estar preenchida.\n"
+        "- Se a corporação não estiver explícita, marque 'é_policial' como false.\n"
+        "\n"
+        "Arma:\n"
+        "- Só marque 'armada' como true se a arma estiver explicitamente descrita.\n"
+        "- Se não estiver explícita, marque 'armada' como false e 'arma_da_vítima' como null.\n"
+        "\n"
         "Responda APENAS em JSON válido conforme o schema."
     )
 
@@ -110,6 +141,7 @@ def _system_rules_retry() -> str:
 # =============================================================================
 # CHAMADA ÚNICA (SEM RETRY)
 # =============================================================================
+
 def call_parse_once(
     client: OpenAI,
     prompt_text: str,
@@ -117,23 +149,51 @@ def call_parse_once(
     model_name: str = DEFAULT_MODEL,
     extra_system: Optional[str] = None,
 ):
+
     system_msg = _system_rules_base() + (extra_system or "")
 
     t0 = time.perf_counter()
-    resp = client.beta.chat.completions.parse(
+
+    resp = client.chat.completions.create(
         model=model_name,
         messages=[
             {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt_text},
         ],
-        response_format=schema,
         temperature=0.0,
+        max_tokens=12000
     )
-    dt = time.perf_counter() - t0
 
+    dt = time.perf_counter() - t0
     usage = getattr(resp, "usage", None)
-    parsed = resp.choices[0].message.parsed
+
+    content = resp.choices[0].message.content
+
+    if not content:
+        raise ValueError("Resposta vazia do modelo.")
+
+    content = content.strip()
+    if content.startswith("```"):
+        content = content.strip("`")
+        content = content.replace("json", "", 1).strip()
+
+    data = json.loads(content)
+
+    # Normalização
+    if isinstance(data, dict):
+
+        # -------- Suspeitos --------
+        if "suspeitos" in data and "Suspeitos" in schema.model_fields:
+            data["Suspeitos"] = data.pop("suspeitos")
+
+
+    data = _normalize_resumo_pessoas(data)
+    parsed = schema.model_validate(data)
+
     return parsed, dt, usage
+
+
+
 
 
 # =============================================================================
@@ -146,7 +206,7 @@ def call_parse_with_retries(
     *,
     doc_id: str,
     model_name: str = DEFAULT_MODEL,
-    max_retries: int = 2,
+    max_retries: int = 1,
 ) -> BaseModel:
     """
     Executa parse() com retries.
@@ -170,7 +230,7 @@ def call_parse_with_retries(
 
         return parsed
 
-    except Exception as e1:
+    except (ValidationError, ValueError, json.JSONDecodeError) as e1:
         last_exc = e1
 
         for _ in range(max_retries):
@@ -201,6 +261,8 @@ def call_parse_with_retries(
 # =============================================================================
 # IO HELPERS
 # =============================================================================
+
+
 def save_model_json(path: Path, model: BaseModel) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:

@@ -61,85 +61,89 @@ from graph_variantes.build_graphs import build_variant_payloads
 def run_all_prompts_once(doc_id: str, raw_text: str) -> Dict[str, Any]:
     """
     Executa os 8 prompts fixos exatamente uma vez por documento.
+    Versão segura (sem uso de .format()).
     """
     cache: Dict[str, Any] = {}
 
-    # 1) mapeamento
-    cache["mapeamento"] = call_parse_with_retries(
-        "mapeamento",
-        prompt_mapeamento.format(document=raw_text),
-        ResumoProcesso,
-        doc_id=doc_id,
-    )
-
-    # 2) inquerito
-    cache["inquerito"] = call_parse_with_retries(
-        "inquerito",
-        prompt_inquerito_info.format(
-            document=raw_text,
-            classification=cache["mapeamento"].classificacao_crime.value,
-        ),
-        Inquerito,
-        doc_id=doc_id,
-    )
-
-    # 3) vitimas
-    vitimas_lista = cache["mapeamento"].pessoas_envolvidas.vitimas
-    cache["vitimas"] = call_parse_with_retries(
-        "vitimas",
-        prompt_vitimas.format(
-            document=raw_text,
-            vitimas=", ".join(vitimas_lista),
-        ),
-        Vitimas,
-        doc_id=doc_id,
-    )
-
-    # 4) suspeitos
-    suspeitos_lista = cache["mapeamento"].pessoas_envolvidas.suspeitos_investigados
-    cache["suspeitos"] = call_parse_with_retries(
-        "suspeitos",
-        prompt_suspeitos.format(
-            document=raw_text,
-            suspeitos=", ".join(suspeitos_lista),
-        ),
-        Suspeitos,
-        doc_id=doc_id,
-    )
-
-    # 5) testemunhas
-    testemunhas_lista = cache["mapeamento"].pessoas_envolvidas.testemunhas
-    cache["testemunhas"] = call_parse_with_retries(
-        "testemunhas",
-        prompt_testemunhas.format(
-            document=raw_text,
-            testemunhas=", ".join(testemunhas_lista),
-        ),
-        Testemunhas,
-        doc_id=doc_id,
-    )
-
-    # 6) mapeamento + inquerito
-    cache["mapeamento_inquerito"] = call_parse_with_retries(
-        "mapeamento_inquerito",
-        prompt_mapeamento_inquerito.format(document=raw_text),
-        MapeamentoInqueritoOut,
-        doc_id=doc_id,
-    )
-
-    # 7) envolvidos (V/S/T)
+    # 1) envolvidos (V/S/T)
     cache["envolvidos_vst"] = call_parse_with_retries(
         "envolvidos_vst",
-        prompt_envolvidos_vst.format(document=raw_text),
+        prompt_envolvidos_vst
+            .replace("{document}", raw_text),
         EnvolvidosOut,
         doc_id=doc_id,
     )
 
-    # 8) tudo em um
+    # 2) tudo em um
     cache["tudo_em_um"] = call_parse_with_retries(
         "tudo_em_um",
-        prompt_tudo_em_um.format(document=raw_text),
+        prompt_tudo_em_um
+            .replace("{document}", raw_text),
         TudoOut,
+        doc_id=doc_id,
+    )
+
+    # 3) mapeamento
+    cache["mapeamento"] = call_parse_with_retries(
+        "mapeamento",
+        prompt_mapeamento
+            .replace("{document}", raw_text),
+        ResumoProcesso,
+        doc_id=doc_id,
+    )
+
+    # 4) inquerito
+    cache["inquerito"] = call_parse_with_retries(
+        "inquerito",
+        prompt_inquerito_info
+            .replace("{document}", raw_text)
+            .replace(
+                "{classification}",
+                cache["mapeamento"].classificacao_crime.value
+            ),
+        Inquerito,
+        doc_id=doc_id,
+    )
+
+    # 5) vitimas
+    vitimas_lista = cache["mapeamento"].pessoas_envolvidas.vitimas
+    cache["vitimas"] = call_parse_with_retries(
+        "vitimas",
+        prompt_vitimas
+            .replace("{document}", raw_text)
+            .replace("{vitimas}", ", ".join(vitimas_lista)),
+        Vitimas,
+        doc_id=doc_id,
+    )
+
+    # 6) suspeitos
+    suspeitos_lista = cache["mapeamento"].pessoas_envolvidas.suspeitos_investigados
+    cache["suspeitos"] = call_parse_with_retries(
+        "suspeitos",
+        prompt_suspeitos
+            .replace("{document}", raw_text)
+            .replace("{suspeitos}", ", ".join(suspeitos_lista)),
+        Suspeitos,
+        doc_id=doc_id,
+    )
+
+    # 7) testemunhas
+    testemunhas_lista = cache["mapeamento"].pessoas_envolvidas.testemunhas
+    cache["testemunhas"] = call_parse_with_retries(
+        "testemunhas",
+        prompt_testemunhas
+            .replace("{document}", raw_text)
+            .replace("{testemunhas}", ", ".join(testemunhas_lista)),
+        Testemunhas,
+        doc_id=doc_id,
+    )
+
+    # 8) mapeamento + inquerito
+    cache["mapeamento_inquerito"] = call_parse_with_retries(
+        "mapeamento_inquerito",
+        prompt_mapeamento_inquerito
+            .replace("{document}", raw_text),
+        MapeamentoInqueritoOut,
         doc_id=doc_id,
     )
 
