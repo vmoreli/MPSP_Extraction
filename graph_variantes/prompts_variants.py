@@ -4,6 +4,10 @@
 Prompts variants oficiais do experimento.
 """
 
+# ==========================================
+# PROMPTS INDIVIDUAIS (BASE)
+# ==========================================
+
 prompt_vitimas = """
 Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas sobre as vítimas.  
 Siga cuidadosamente as instruções abaixo:  
@@ -12,16 +16,12 @@ Instruções:
 - Extraia **apenas informações sobre as vítimas** mencionadas no documento.  
 - Quando o sexo da vítima não for explicitamente informado, **infira pelo nome**.  
 - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".  
-- Sua resposta deve seguir **exatamente** o schema completo definido para vítimas. 
 - O que for "não informado" não precisa ser preenchido.
-
-Vítimas:
-{vitimas}
+- Sua resposta deve seguir **exatamente** o schema completo definido para vítimas. 
 
 Promoção de arquivamento:
 {document}
 """
-
 
 prompt_suspeitos = """
 Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas sobre os autores suspeitos/investigados.  
@@ -31,11 +31,9 @@ Instruções:
 - Extraia **apenas informações sobre os autores suspeitos/investigados** mencionadas no documento.
 - Quando o sexo do indivíduo não for fornecido explicitamente, infira o sexo da pessoa pelo nome.
 - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
-- Sua resposta deve seguir **exatamente** o schema completo definido para suspeitos.
 - O que for "não informado" não precisa ser preenchido.
+- Sua resposta deve seguir **exatamente** o schema completo definido para suspeitos.
 
-Suspeitos:
-{suspeitos}
 
 Promoção de arquivamento:
 {document}    
@@ -50,9 +48,6 @@ Instruções:
 - Quando o sexo do indivíduo não for fornecido explicitamente, infira o sexo da pessoa pelo nome.
 - Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado".
 - O que for "não informado" não precisa ser preenchido.
-
-Testemunhas:
-{testemunhas}
 
 Promoção de arquivamento:
 {document}    
@@ -82,19 +77,17 @@ Instruções Gerais:
 - Caso alguma informação não esteja disponível, deixe o campo em branco — nunca invente ou use "não informado".
 - Mantenha datas, horários e trechos de texto exatamente como aparecem no documento.
 
-Instruções específicas:
-- Classifique o crime conforme o conteúdo do texto (Homicídio, Latrocínio, ou Morte não criminosa).
-- Considere como **morte por causas naturais** apenas aquelas que não decorrem da ação de suspeitos/investigados.
+Instruções Específicas:
+- Classifique o crime conforme o conteúdo do texto (Homicídio, Latrocínio, ou Morte por causas naturais).
+- Considere como **Morte por causas naturais** apenas aquelas que não decorrem da ação de suspeitos/investigados.
 - O campo `razao_arquivamento` deve conter o **trecho literal** que justifica o arquivamento, sem resumo ou interpretação.
 - As seguintes regras de negócio **devem ser respeitadas**:
-    - O campo `é_feminicidio` só pode ser `True` se a `classificacao_crime` for **Homicídio**.
-    - O campo `bem_roubado` deve ser preenchido apenas se a `classificacao_crime` for **Latrocínio**.
+    - O campo `é_feminicidio` só pode ser `True` se a classificação do crime for **Homicídio**.
+    - O campo `bem_roubado` deve ser preenchido apenas se a classificação for **Latrocínio**.
     - O campo `resultado` segue a lógica:
         - **Latrocínio** → sempre `CONSUMADO`
-        - **Morte não criminosa** → campo não preenchido
+        - **Morte por causas naturais** → campo em branco
 
-Tipo de crime:
-{classification}
 
 Promoção de arquivamento:
 {document}
@@ -114,75 +107,51 @@ Instruções:
 - Considere sinônimos, diferenças de formatação ou pequenas variações que não alterem o significado.
 """
 
+# ==========================================
+# PROMPTS COMBINADOS (REFATORADOS)
+# ==========================================
+
 prompt_envolvidos_vst = """
-Você é um assistente especializado em analisar promoções de arquivamento e extrair informações estruturadas sobre:
-
-- Vítimas
-- Suspeitos/Investigados
-- Testemunhas
-
-Siga cuidadosamente as instruções abaixo.
+Você é um assistente especializado em analisar promoções de arquivamento e extrair, de forma conjunta, informações estruturadas sobre: Vítimas, Suspeitos/Investigados e Testemunhas.
 
 Instruções Gerais:
-- Utilize apenas informações explicitamente presentes no documento.
-- Não invente dados e não utilize "não informado".
-- Campos sem informação disponível devem permanecer em branco.
-- Quando o sexo não estiver explícito, infira pelo nome.
-- Cada pessoa deve aparecer apenas no bloco correspondente ao seu papel.
-- Não duplique registros.
-- A resposta deve seguir exatamente o schema combinado (Vítimas + Suspeitos + Testemunhas).
-- Não inclua comentários ou explicações adicionais.
+- Extraia **apenas informações explícitas** no documento.
+- Caso alguma informação não esteja disponível, não preencha o respectivo campo. Não invente dados e não preencha com "não informado" (o que for "não informado" não precisa ser preenchido).
+- Quando o sexo não for explicitamente informado, **infira pelo nome**.
+- Cada pessoa deve aparecer apenas no bloco correspondente ao seu papel. Não duplique registros.
 
-Regras de Classificação:
-- Inclua apenas pessoas claramente identificadas como vítimas, suspeitos/investigados ou testemunhas.
-- Não inclua pessoas mencionadas sem indicação clara de papel.
-- Não preencha campos que não tenham evidência textual.
-
-Regras Campos
-- Nunca marque é_policial como true se o texto não afirmar explicitamente que a pessoa é policial.
-- Se é_policial for true, corporacao_policial deve estar explícita, do contrário deve ser false
-- Nunca marque armada como true se o texto não mencionar arma.
-
-A resposta deve seguir EXATAMENTe o schema combinado.
+Regras de Negócio para Pessoas:
+- **é_policial**: Só marque como `True` se a corporação estiver explicitamente descrita. Se `True`, preencha obrigatoriamente `corporacao_policial`. Se `False`, deixe a corporação em branco.
+- **armada (Vítimas)**: Só marque como `True` se a arma estiver explicitamente descrita no texto. Se `True`, preencha obrigatoriamente `arma_da_vítima`.
 
 Promoção de arquivamento:
 {document}
 """
 
 prompt_mapeamento_inquerito = """
-Você é um assistente especializado em analisar promoções de arquivamento, extrair informações estruturadas sobre o inquérito policial.
-
-1) Identificação e classificação de todas as pessoas mencionadas.
+Você é um assistente especializado em analisar promoções de arquivamento e realizar três tarefas conjuntamente:
+1) Mapeamento e classificação de todas as pessoas mencionadas.
 2) Classificação do tipo de crime.
-3) Extração estruturada das informações do inquérito.
+3) Extração estruturada das informações do inquérito policial.
 
 Instruções Gerais:
-- Utilize apenas informações explicitamente presentes no documento.
-- Não invente dados e não utilize "não informado".
-- Campos sem informação devem permanecer em branco.
-- Preserve datas e trechos literais exatamente como aparecem.
-- Não inclua explicações.
+- Extraia **apenas informações explícitas** no documento. Não invente dados.
+- Campos sem informação devem permanecer em branco. O que for "não informado" não precisa ser preenchido.
+- Preserve datas, horários e trechos literais exatamente como aparecem.
 
-Identificação de Pessoas:
-- Identifique todas as pessoas mencionadas como vítima, suspeito/investigado ou testemunha.
-- Use nomes completos sempre que disponíveis.
-- Classifique cada pessoa em apenas um papel, salvo indicação expressa de múltiplos papéis.
+Regras para Mapeamento:
+- Identifique todas as pessoas (vítimas, suspeitos/investigados ou testemunhas) usando nomes completos sempre que disponíveis.
+- Classifique o crime como Homicídio, Latrocínio, ou Morte por causas naturais.
+- **Importante**: Um inquérito que tenha suspeitos ligados à morte não pode ser classificado como "Morte por causas naturais".
 
-Classificação do Crime:
-- Classifique como:
-    - Homicídio
-    - Latrocínio
-    - Morte por causas naturais
-- Não classifique como "Morte por causas naturais" se houver suspeitos ligados à morte.
-
-Regras do inquérito:
-- **razao_arquivamento** deve conter o trecho literal.
-- **é_feminicidio** apenas se for Homicídio.
-- **bem_roubado** apenas se for Latrocínio.
-- **resultado**:
-    - Homicídio → "Consumado" ou "Tentado" apenas se explícito; senão deixar em branco.
-    - Latrocínio → "Consumado".
-    - Morte por causas naturais → deixar em branco.
+Regras para Inquérito:
+- O campo `razao_arquivamento` deve conter o **trecho literal** que justifica o arquivamento.
+- O campo `é_feminicidio` só pode ser `True` se for **Homicídio**.
+- O campo `bem_roubado` deve ser preenchido apenas se for **Latrocínio**.
+- O campo `resultado`:
+    - Homicídio → "Consumado" ou "Tentado" apenas se explícito; senão, deixe em branco.
+    - Latrocínio → Sempre "Consumado".
+    - Morte por causas naturais → Deixe em branco.
 
 Promoção de arquivamento:
 {document}
@@ -190,70 +159,51 @@ Promoção de arquivamento:
 
 prompt_inquerito_e_envolvidos = """
 Você é um assistente especializado em analisar promoções de arquivamento e extrair, de forma conjunta:
-
-- Informações estruturadas do inquérito
-- Informações estruturadas sobre vítimas, suspeitos/investigados e testemunhas
+- Informações estruturadas do Inquérito
+- Informações detalhadas sobre Vítimas, Suspeitos/Investigados e Testemunhas
 
 Instruções Gerais:
-- Utilize apenas informações explicitamente presentes no texto.
-- Não invente dados e não utilize "não informado".
-- Campos sem informação devem permanecer em branco.
-- Preserve datas e trechos literais.
-- Não inclua explicações.
+- Extraia **apenas informações explícitas** no documento. Não invente dados.
+- Campos sem informação devem permanecer em branco. O que for "não informado" não precisa ser preenchido.
+- Preserve datas, horários e trechos literais exatamente como aparecem.
 
-Classificação do Crime:
-- Homicídio, Latrocínio ou Morte por causas naturais.
-- Não use "Morte por causas naturais" se houver suspeitos ligados à morte.
+Regras para Pessoas (Vítimas, Suspeitos, Testemunhas):
+- **Sexo**: Quando não explícito, infira pelo nome.
+- **é_policial**: Só marque como `True` se a corporação estiver explicitamente descrita. Se `True`, preencha `corporacao_policial`. Se `False`, deixe em branco.
+- **armada (Vítimas)**: Só marque como `True` se a arma estiver explicitamente descrita. Se `True`, preencha `arma_da_vítima`.
 
-Regras do inquérito:
-- **razao_arquivamento** deve ser trecho literal.
-- **é_feminicidio** apenas se for Homicídio.
-- **bem_roubado** apenas se for Latrocínio.
-- **resultado**:
-    - Homicídio → preencher apenas se explícito.
-    - Latrocínio → "Consumado".
-    - Morte por causas naturais → deixar em branco.
-
-Regras para Pessoas:
-- Inferir sexo pelo nome quando necessário.
-- **é_policial** só pode ser True se a corporação estiver explicitamente descrita.
-- Se não houver corporação explícita → **é_policial=False** e **corporacao_policial** em branco.
-- **armada** só pode ser True se a arma estiver explicitamente descrita; caso contrário, deixar em branco.
+Regras para Inquérito:
+- Classifique o crime (Homicídio, Latrocínio ou Morte por causas naturais). Não use "Morte por causas naturais" se houver suspeitos.
+- `razao_arquivamento`: Deve ser o trecho literal do documento.
+- `é_feminicidio`: Apenas se for **Homicídio**.
+- `bem_roubado`: Apenas se for **Latrocínio**.
+- `resultado`: "Consumado" ou "Tentado" (se Homicídio e explícito), "Consumado" (se Latrocínio), ou em branco (se Morte por causas naturais).
 
 Promoção de arquivamento:
 {document}
 """
 
 prompt_tudo_em_um = """
-Você é um assistente especializado em analisar promoções de arquivamento e extrair todas as informações estruturadas do inquérito e dos envolvidos.
+Você é um assistente especializado em analisar promoções de arquivamento e extrair, em uma única etapa, todas as informações estruturadas sobre:
+1) Mapeamento (Resumo do Processo e Classificação do Crime)
+2) Dados do Inquérito Policial
+3) Dados detalhados de Vítimas, Suspeitos/Investigados e Testemunhas
 
-Instruções:
-- Utilize apenas informações explicitamente presentes no texto.
-- Não invente dados e não utilize "não informado".
-- Campos sem informação devem permanecer em branco.
-- Preserve trechos literais.
-- Não inclua explicações.
+Instruções Gerais:
+- Extraia **apenas informações explícitas** no documento. Não invente dados.
+- Campos sem informação devem permanecer em branco. O que for "não informado" não precisa ser preenchido.
+- Preserve trechos literais (como a razão de arquivamento) exatamente como aparecem.
 
-Classifique o crime como:
-- Homicídio
-- Latrocínio
-- Morte por causas naturais
-Não use "Morte por causas naturais" se houver suspeitos ligados à morte.
+Regras para Mapeamento e Inquérito:
+- Classifique como Homicídio, Latrocínio ou Morte por causas naturais. Não use "Morte por causas naturais" se houver suspeitos ligados à morte.
+- `é_feminicidio`: Preencher `True` apenas se for **Homicídio**.
+- `bem_roubado`: Preencher apenas se for **Latrocínio**.
+- `resultado`: Preencher em Homicídio apenas se explícito, fixar "Consumado" em Latrocínio, e deixar em branco para Morte por causas naturais.
 
-Regras:
-- **razao_arquivamento** deve ser literal.
-- **é_feminicidio** apenas se for Homicídio.
-- **bem_roubado** apenas se for Latrocínio.
-- **resultado**:
-    - Homicídio → preencher apenas se explícito.
-    - Latrocínio → "Consumado".
-    - Morte por causas naturais → deixar em branco.
-- Inferir sexo pelo nome quando necessário.
-
-Regras Campos:
-- Nunca marque **é_policial** como true se o texto não afirmar explicitamente que a pessoa é policial.
-- Se **é_policial** for true, **corporacao_policial** deve estar explícita, do contrário deve ser false.
-- Nunca marque **armada** como true se o texto não mencionar arma.
+Regras para Pessoas (Envolvidos):
+- **Sexo**: Quando não explícito, infira pelo nome.
+- **é_policial**: Só marque `True` se a corporação estiver explícita (e preencha `corporacao_policial`).
+- **armada (Vítimas)**: Só marque `True` se o texto mencionar a arma (e preencha `arma_da_vítima`).
 
 Promoção de arquivamento:
 {document}

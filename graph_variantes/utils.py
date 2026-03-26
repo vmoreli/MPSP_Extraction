@@ -13,7 +13,7 @@ from google import genai
 from extraction_pipeline.schemas.extract_data_schemas import Vitimas, Suspeitos, Testemunhas
 
 MODEL_BY_PROVIDER = {
-    "gemini": "gemini-1.5-flash", # Corrigido de 2.5 para 1.5
+    "gemini": "models/gemini-2.5-flash",
     "maritaca": "sabia-3.1",
 }
 
@@ -46,12 +46,33 @@ def _accumulate(prompt_name: str, dt: float, usage: Optional[Any], retried: bool
     if not usage:
         return
 
-    pt = int(getattr(usage, "prompt_tokens", 0) or 0)
-    ct = int(getattr(usage, "completion_tokens", 0) or 0)
-    tt = int(getattr(usage, "total_tokens", 0) or (pt + ct))
+    # --- Lógica Universal de Tokens ---
+    
+    # 1. Prompt Tokens (Entrada)
+    # Tenta padrão Gemini primeiro, se não existir, tenta padrão OpenAI/Maritaca
+    pt = getattr(usage, "prompt_token_count", None) 
+    if pt is None:
+        pt = getattr(usage, "prompt_tokens", 0)
 
+    # 2. Completion Tokens (Saída)
+    # No Gemini chama-se candidates_token_count
+    ct = getattr(usage, "candidates_token_count", None)
+    if ct is None:
+        ct = getattr(usage, "completion_tokens", 0)
+
+    # 3. Total
+    tt = getattr(usage, "total_tokens", None)
+    if tt is None:
+        tt = int(pt or 0) + int(ct or 0)
+
+    # Atualiza STATS globais
+    s["prompt_tokens"] += int(pt or 0)
+    s["completion_tokens"] += int(ct or 0)
+    s["total_tokens"] += int(tt or 0)
+
+    # Atualiza estatísticas por documento
     doc_stats = TOKENS_BY_DOC.setdefault(doc_id, {})
-    doc_stats[prompt_name] = doc_stats.get(prompt_name, 0) + tt
+    doc_stats[prompt_name] = doc_stats.get(prompt_name, 0) + int(tt or 0)
 
 def print_stats(doc_id: str):
     """Exibe o resumo de tokens e tempo para o documento processado."""
@@ -101,13 +122,26 @@ def call_parse_once(client: Any, prompt_text: str, schema: Type[BaseModel], mode
         resp = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt_text}],
-            temperature=0.0
+            response_format={"type": "json_object"},
+            temperature=0  # <--- Definido aqui
         )
         content = resp.choices[0].message.content
         usage = resp.usage
     else: # Gemini
-        resp = client.models.generate_content(model=model_name, contents=prompt_text, config={'response_mime_type': 'application/json', 'response_schema': schema})
-        content = resp.text
+        resp = client.models.generate_content(
+            model=model_name, 
+            contents=prompt_text, 
+            config={
+                'temperature': 0, 
+                'response_mime_type': 'application/json', 
+                'response_schema': schema
+            }
+        )
+        try:
+            content = resp.text
+        except ValueError:
+            content = None
+            
         usage = getattr(resp, "usage_metadata", None)
 
     dt = time.perf_counter() - t0
@@ -118,6 +152,8 @@ def call_parse_once(client: Any, prompt_text: str, schema: Type[BaseModel], mode
     
     parsed = schema.model_validate_json(content)
     return parsed, dt, usage
+
+
 
 def call_parse_with_retries(*, prompt_name: str, prompt_text: str, schema: Type[BaseModel], doc_id: str, client: Any, provider: str, max_retries: int = 1) -> BaseModel:
     model_name = resolve_model_name(provider)
