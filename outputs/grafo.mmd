@@ -1,0 +1,29 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	mapear_envolvidos_e_classificar_crime(mapear envolvidos e classificar crime)
+	extrair_informa__es_gerais_do_inqu_rito(extrair informações gerais do inquérito)
+	extrair_v_timas(extrair vítimas)
+	extrair_suspeitos(extrair suspeitos)
+	extrair_testemunhas(extrair testemunhas)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> mapear_envolvidos_e_classificar_crime;
+	extrair_informa__es_gerais_do_inqu_rito -.-> __end__;
+	extrair_informa__es_gerais_do_inqu_rito -.-> extrair_suspeitos;
+	extrair_informa__es_gerais_do_inqu_rito -.-> extrair_testemunhas;
+	extrair_informa__es_gerais_do_inqu_rito -.-> extrair_v_timas;
+	extrair_suspeitos -.-> __end__;
+	extrair_suspeitos -.-> extrair_testemunhas;
+	extrair_v_timas -.-> __end__;
+	extrair_v_timas -.-> extrair_suspeitos;
+	extrair_v_timas -.-> extrair_testemunhas;
+	mapear_envolvidos_e_classificar_crime -.-> __end__;
+	mapear_envolvidos_e_classificar_crime -.-> extrair_informa__es_gerais_do_inqu_rito;
+	extrair_testemunhas --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
