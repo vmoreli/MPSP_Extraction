@@ -1,10 +1,17 @@
 data/
 .venv/
 .env
-__pycache__
+__pycache__/
 output/
-rev_humana
+outputs/
+results_variants/
+extraction_results/
+eval_results/
+rev_humana/
 eval/
 *.zip
-*.json
-eval_results/
+
+# JSONs de saída gerados (não versionar)
+groundtruth_cleaned.json
+output_normalizado.json
+resultado_revisao.json
