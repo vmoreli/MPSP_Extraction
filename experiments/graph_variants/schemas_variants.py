@@ -9,7 +9,7 @@ Objetivo:
 from typing import Optional, List
 from pydantic import BaseModel
 
-from pipeline.schemas.extract_data_schemas import (
+from extraction_pipeline.schemas.extract_data_schemas import (
     ResumoProcesso,
     Inquerito,
     Vitima,

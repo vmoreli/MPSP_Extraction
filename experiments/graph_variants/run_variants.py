@@ -3,20 +3,20 @@ from pathlib import Path
 from typing import Dict, Any
 from pydantic import BaseModel
 
-from experiments.graph_variants.schemas_variants import (
+from graph_variantes.schemas_variants import (
     MapeamentoInqueritoOut,
     EnvolvidosOut,
     TudoOut,
 )
-from pipeline.schemas.extract_data_schemas import (
+from extraction_pipeline.schemas.extract_data_schemas import (
     ResumoProcesso,
     Inquerito,
     Vitimas,
     Suspeitos,
     Testemunhas,
 )
-from prompts.combined import *
-from experiments.graph_variants.utils import (
+from graph_variantes.prompts_variants import *
+from graph_variantes.utils import (
     call_parse_with_retries,
     save_model_json,
     save_payload_json,
@@ -24,7 +24,7 @@ from experiments.graph_variants.utils import (
     create_client,
     save_token_stats,
 )
-from experiments.graph_variants.build_graphs import build_variant_payloads
+from graph_variantes.build_graphs import build_variant_payloads
 
 
 def run_all_prompts_once(
