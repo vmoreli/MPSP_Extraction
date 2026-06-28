@@ -1,0 +1,47 @@
+# --- Dados e outputs (nunca versionar documentos judiciais) ---
+data/
+output/
+outputs/
+eval/
+eval_results/
+rev_humana/
+
+# --- Segredos e ambiente ---
+.env
+*.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Ambientes virtuais ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Arquivos de dados temporários ---
+*.zip
+*.json
+!examples/*.json
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- macOS ---
+.DS_Store
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb

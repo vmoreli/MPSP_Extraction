@@ -1,0 +1,23 @@
+# LLM e orquestração
+langgraph>=0.2
+openai>=1.0
+google-genai>=1.0
+maritalk
+
+# Schemas e validação
+pydantic>=2.0
+
+# Utilitários de dados
+pandas>=2.0
+openpyxl
+
+# Variáveis de ambiente
+python-dotenv
+
+# Avaliação semântica (experimentos)
+sentence-transformers
+scikit-learn
+
+# Visualização (scripts auxiliares)
+matplotlib
+seaborn
