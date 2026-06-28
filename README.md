@@ -15,11 +15,8 @@ Utiliza grafos LangGraph com modelos de linguagem (LLM) — Sabiazinho, Sabiá (
 - [Configuração](#configuração)
 - [Como usar](#como-usar)
 - [Formato da saída](#formato-da-saída)
-- [Dataset](#dataset)
 - [Experimentos](#experimentos)
-- [Estimativas de custo](#estimativas-de-custo)
 - [Limitações éticas e legais](#limitações-éticas-e-legais)
-- [Licença](#licença)
 
 ---
 
@@ -58,7 +55,7 @@ mpsp-extraction/
 │   │   └── loader_service.py   # Carregamento e filtragem de processos do disco
 │   └── scripts/
 │       ├── count_valid_processes.py  # Análise do funil de dados e estimativa de custo
-│       └── visualize_graph.py        # Gera visualização do grafo (grafo.mmd / grafo.png)
+│      
 │
 ├── experiments/                # Variantes experimentais do pipeline
 │   ├── build_graphs.py
@@ -96,35 +93,6 @@ mpsp-extraction/
 ```
 
 ---
-
-## Pipeline de extração
-
-O pipeline é implementado como um grafo dirigido com LangGraph. Cada nó chama o LLM com um prompt específico e retorna a próxima etapa a executar (roteamento condicional).
-
-```
-START
-  │
-  ▼
-[mapear envolvidos e classificar crime]
-  │
-  ├─ Morte natural ──────────────────────────► END
-  │
-  ▼
-[extrair informações gerais do inquérito]
-  │
-  ├─ se há vítimas ──────► [extrair vítimas]
-  │                              │
-  ├─ se há suspeitos ────────────┤──► [extrair suspeitos]
-  │                              │           │
-  └─ se há testemunhas ──────────┤───────────┤──► [extrair testemunhas]
-                                 │           │           │
-                                 └───────────┴───────────┴──► END
-```
-
-Visualização completa em `docs/assets/pipeline_graph.png`.
-
----
-
 ## Instalação
 
 ### Pré-requisitos
@@ -135,37 +103,12 @@ Visualização completa em `docs/assets/pipeline_graph.png`.
 ### Passos
 
 ```bash
-# 1. Clone o repositório
+# Clone o repositório
 git clone https://github.com/<seu-usuario>/mpsp-extraction.git
 cd mpsp-extraction
-
-# 2. Crie e ative um ambiente virtual
-python -m venv .venv
-source .venv/bin/activate        # Linux/macOS
-.venv\Scripts\activate           # Windows
-
-# 3. Instale as dependências
-pip install -r requirements.txt
 ```
 
 ---
-
-## Configuração
-
-```bash
-# Copie o template de variáveis de ambiente
-cp .env.example .env
-
-# Edite o .env com suas chaves
-nano .env   # ou qualquer editor de sua preferência
-```
-
-O arquivo `.env` deve conter:
-
-```
-MARITACA_API_KEY=sua_chave_maritaca
-GOOGLE_API_KEY=sua_chave_google   # opcional, se usar Gemini
-```
 
 ### Estrutura de dados esperada
 
@@ -248,8 +191,7 @@ O pipeline gera um arquivo JSON em `output/run_<timestamp>/results_<modelo>.json
     }
   },
   "13000000009876543": {
-    "status": "error",
-    "message": "descrição do erro"
+    ...
   }
 }
 ```
@@ -258,20 +200,6 @@ Consulte `examples/registro_exemplo.json` para um exemplo completo de um registr
 
 Para a descrição detalhada de todos os campos, consulte `docs/dicionario_de_dados.md`.
 
----
-
-## Dataset
-
-Para informações completas sobre cobertura temporal, granularidade, estatísticas descritivas, taxa de valores ausentes e limitações, consulte `docs/dataset.md`.
-
-**Resumo:**
-
-| Métrica | Valor |
-|---|---|
-| Processos aptos para extração | ~47.204 |
-| Cobertura geográfica | Estado de São Paulo — SP, Brasil |
-| Tipos de crime | Homicídio, Latrocínio, Mortes investigadas |
-| Unidade de análise | Inquérito policial arquivado |
 
 ---
 
@@ -279,24 +207,6 @@ Para informações completas sobre cobertura temporal, granularidade, estatísti
 
 A pasta `experiments/` contém variantes do pipeline usadas em pesquisa, com diferentes topologias de grafo e prompts. Consulte `experiments/README.md` para instruções de uso.
 
----
-
-## Estimativas de custo
-
-Custo estimado para processar os ~47.204 processos aptos (junho/2025, dólar a R$ 5,50):
-
-| Modelo | Custo total estimado |
-|---|---|
-| Sabiazinho-3 | R$ 464 |
-| Sabiá-3.0 | R$ 1.911 |
-| Gemini 2.5 Flash | R$ 2.124 |
-| Gemini 2.5 Pro | R$ 8.588 |
-
-Para regenerar estas estimativas com os dados atuais:
-
-```bash
-python -m extraction_pipeline.scripts.count_valid_processes
-```
 
 ---
 
@@ -308,12 +218,6 @@ Este pipeline processa documentos contendo dados pessoais sensíveis (nomes, ant
 - A **presunção de inocência** — suspeitos são investigados, não condenados
 - A finalidade de **interesse público legítimo** (pesquisa científica, análise de segurança pública)
 
-Consulte o arquivo `LICENSE` e `docs/dataset.md` para os termos completos.
+
 
 ---
-
-## Licença
-
-Código-fonte distribuído sob **MIT License**.
-
-Os dados extraídos derivam de documentos públicos do MPSP (LAI) e seu uso deve respeitar a LGPD. Ver `LICENSE` para os termos completos.
